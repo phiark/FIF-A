@@ -1,0 +1,11 @@
+2025-11-08 23:19:56,615 - INFO - epoch=1 step=948 train_loss=0.5871 acc=0.6869 f1=0.6770 energy=695.6886
+2025-11-08 23:20:31,185 - INFO - validation epoch=1 loss=0.5783 acc=0.7050 f1=0.6993 ece=0.0652 energy=139.1588
+2025-11-08 23:31:36,745 - INFO - epoch=2 step=1896 train_loss=0.4370 acc=0.7997 f1=0.7963 energy=300.5954
+2025-11-08 23:32:10,400 - INFO - validation epoch=2 loss=0.6856 acc=0.6803 f1=0.6743 ece=0.1333 energy=97.3248
+2025-11-08 23:43:14,783 - INFO - epoch=3 step=2844 train_loss=0.3540 acc=0.8478 f1=0.8457 energy=264.1648
+2025-11-08 23:43:48,468 - INFO - validation epoch=3 loss=0.5211 acc=0.7471 f1=0.7471 ece=0.0673 energy=59.2326
+2025-11-08 23:54:52,380 - INFO - epoch=4 step=3792 train_loss=0.2974 acc=0.8761 f1=0.8745 energy=235.3809
+2025-11-08 23:55:26,067 - INFO - validation epoch=4 loss=0.5466 acc=0.7719 f1=0.7707 ece=0.0873 energy=26.2095
+2025-11-09 00:06:36,503 - INFO - epoch=5 step=4740 train_loss=0.2548 acc=0.8977 f1=0.8963 energy=229.6301
+2025-11-09 00:07:10,114 - INFO - validation epoch=5 loss=0.5975 acc=0.7575 f1=0.7573 ece=0.1171 energy=45.5499
+2025-11-09 00:07:15,597 - INFO - test loss=0.8036 acc=0.7030 f1=0.7019 ece=0.1798 energy=147.5207

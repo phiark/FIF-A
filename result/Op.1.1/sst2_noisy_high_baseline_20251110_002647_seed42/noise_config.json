@@ -1,0 +1,6 @@
+{
+  "level": "high",
+  "char_noise_p": 0.1,
+  "word_drop_p": 0.05,
+  "span_drop_p": 0.05
+}

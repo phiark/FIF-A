@@ -1,0 +1,32 @@
+{
+  "task": "sst2_noisy",
+  "model_type": "hybrid",
+  "hidden_size": 256,
+  "ff_size": 1024,
+  "num_heads": 4,
+  "dropout": 0.1,
+  "batch_size": 64,
+  "max_seq_len": 128,
+  "vocab_size": 30522,
+  "num_labels": 2,
+  "seed": 42,
+  "device": "mps",
+  "tokenizer_name": "bert-base-uncased",
+  "friction": {
+    "K": 3,
+    "eta": 0.3,
+    "neighbor": "window",
+    "radius": 4,
+    "k": 8
+  },
+  "optimization": {
+    "lr": 0.0003,
+    "weight_decay": 0.01,
+    "warmup_steps": 0,
+    "max_steps": 0,
+    "epochs": 5,
+    "grad_clip": 1.0
+  },
+  "dump_energy_per_sample": false,
+  "noise_intensity": "high"
+}

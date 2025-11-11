@@ -1,0 +1,11 @@
+2025-11-10 01:22:48,522 - INFO - epoch=1 step=3789 train_loss=0.6823 acc=0.5675 f1=0.4590 energy=371.9571 elog=5.5328
+2025-11-10 01:23:22,238 - INFO - validation epoch=1 loss=0.6889 acc=0.5480 f1=0.3540 ece=0.0008 energy=0.0000 elog=0.0000
+2025-11-10 02:19:05,490 - INFO - epoch=2 step=7578 train_loss=0.6870 acc=0.5590 f1=0.3841 energy=406.5628 elog=5.6810
+2025-11-10 02:19:39,126 - INFO - validation epoch=2 loss=0.6892 acc=0.5480 f1=0.3540 ece=0.0092 energy=0.0000 elog=0.0000
+2025-11-10 03:15:38,477 - INFO - epoch=3 step=11367 train_loss=0.6873 acc=0.5589 f1=0.3588 energy=407.7306 elog=5.6746
+2025-11-10 03:16:12,544 - INFO - validation epoch=3 loss=0.6892 acc=0.5480 f1=0.3540 ece=0.0128 energy=0.0000 elog=0.0000
+2025-11-10 04:11:31,515 - INFO - epoch=4 step=15156 train_loss=0.6871 acc=0.5587 f1=0.3597 energy=417.1266 elog=5.6897
+2025-11-10 04:12:05,390 - INFO - validation epoch=4 loss=0.6895 acc=0.5480 f1=0.3540 ece=0.0162 energy=0.0000 elog=0.0000
+2025-11-10 05:07:56,296 - INFO - epoch=5 step=18945 train_loss=0.6870 acc=0.5589 f1=0.3585 energy=422.4883 elog=5.6909
+2025-11-10 05:08:29,642 - INFO - validation epoch=5 loss=0.6899 acc=0.5480 f1=0.3540 ece=0.0201 energy=0.0000 elog=0.0000
+2025-11-10 05:08:34,626 - INFO - test loss=0.7001 acc=0.5092 f1=0.3374 ece=0.0590 energy=0.0000 elog=0.0000

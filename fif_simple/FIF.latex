@@ -1,0 +1,134 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,bm,graphicx,booktabs}
+\usepackage{newtxtext, newtxmath} % 替换过时的 "times" 宏包，提供更好的 Times 字体
+\usepackage{hyperref} % 建议将 hyperref 作为最后一个宏包加载
+
+% 为 hyperref 添加一些选项，使PDF更易用
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue,
+    pdfstartview=FitH,
+    pdftitle={Frictional Interaction Fields (FIF): A Symmetric Energy-Based Inductive Bias for Robust Multi-Modal Integration},
+    pdfauthor={Anonymous Authors}
+}
+
+\title{\textbf{Frictional Interaction Fields (FIF):}\\
+A Symmetric Energy-Based Inductive Bias for Robust Multi-Modal Integration}
+\author{Anonymous Authors\\
+\vspace{1mm}Draft Version 0.2 --- Conceptual Prototype Only}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We introduce \textbf{Frictional Interaction Fields (FIF)}, a symmetric, energy-based inductive bias that models cross-channel disagreement as physical \emph{friction}.
+Unlike attention, which relies on asymmetric similarity weighting, FIF penalizes inconsistency between modalities through an energy minimization process, yielding equilibrium representations rather than attention-weighted averages.
+We present both continuous and discrete formulations, highlight its relation to Laplacian energy, anisotropic diffusion, and gradient flow, and discuss how external task constraints act as multidimensional pressures.
+A toy-level prototype suggests that FIF produces a frictional energy metric linearly correlated with task conflict and exhibits improved stability under synthetic noise.
+This paper serves as an early conceptual report.
+\end{abstract}
+
+\section{Introduction}
+Attention mechanisms dominate contemporary deep architectures by focusing on similarity-based relevance between features.
+However, when modalities conflict, such asymmetric focusing fails to capture the \emph{cost of disagreement}.
+We propose FIF, where the system seeks equilibrium by dissipating internal tension.
+Intelligence here is not the art of selecting importance but of balancing contradictions.
+
+Our contributions:
+\begin{enumerate}
+\item A symmetric, energy-driven coupling mechanism replacing probabilistic weighting.
+\item A unified view over continuous fields, discrete graphs, and sequences.
+\item An interpretable internal metric---the frictional energy---quantifying task difficulty and cognitive load.
+\end{enumerate}
+
+\section{Method}
+\subsection{Continuous formulation}
+Let $v_m(x)$ denote the $m$-th information field on domain $\Omega$.
+We define the total energy $E$.
+% 使用 align* 环境来排版多行公式，更清晰
+\begin{align*}
+    E = \sum_{m<n}\int_\Omega (v_m - v_n)^\top \mu_{mn}(x) (v_m - v_n)\,dx 
+        & + \lambda \sum_m \int_\Omega \|\nabla v_m\|^2 dx \\
+        & - \int_\Omega q(x)^\top v(x)\,dx ,
+\end{align*}
+where $\mu_{mn}(x)$ is a positive semi-definite friction tensor and $q(x)$ is an external pressure term.
+The dynamics follow a gradient flow toward equilibrium.
+% 修正：将此方程放入数学环境
+\[
+\partial_t v = -\delta E/\delta v
+\]
+
+\subsection{Discrete formulation}
+Stacking node features $h\in\mathbb{R}^{N\times d}$, let $L_\mu$ be the friction Laplacian constructed from $\mu_{ij}$.
+The equilibrium condition is
+\[
+(L_\mu+\varepsilon I)h = q,
+\]
+approximated iteratively by
+\[
+h^{t+1} = h^t - \eta (L_\mu h^t - q), \quad t=0\dots K-1.
+\]
+We employ diagonal positive $\mu_{ij}=\text{softplus}(W_{ij})$ and small $\lambda$-regularization for numerical stability.
+
+\section{Comparison with Attention}
+\begin{itemize}
+\item \textbf{Asymmetry vs Symmetry:} Attention is directional ($Q\to K$), FIF is bidirectional ($i\leftrightarrow j$).
+\item \textbf{Normalization:} Attention uses softmax normalization, sensitive to temperature; FIF normalizes implicitly via convex energy minimization.
+\item \textbf{Complexity:} Full attention costs $\mathcal{O}(N^2d)$; with sparse $\mu$, FIF reduces to $\mathcal{O}(KNd)$.
+\item \textbf{Interpretability:} Frictional energy serves as a first-order metric of conflict, correlated with task difficulty.
+\end{itemize}
+
+\section{Preliminary Predictive Results}
+We simulated a synthetic ``conflict'' parameter $c\in[0,1.0]$ representing modality disagreement.
+The baseline is a standard softmax attention layer; FIF employs a 5-step iterative solver with diagonal friction.
+All numbers below are averaged over multiple toy runs (not controlled experiments).
+
+% 优化：使用 [htbp] 替代 [h!]，给 LaTeX 更多浮动体放置的自由度
+\begin{table}[htbp]
+\centering
+\begin{tabular}{cccc}
+\toprule
+Conflict & Baseline Acc. & FIF Acc. & Friction Energy \\
+\midrule
+0.0 & 0.44 & 0.44 & 0.02 \\
+0.2 & 0.44 & 0.45 & 1.39 \\
+0.4 & 0.44 & 0.45 & 2.69 \\
+0.6 & 0.45 & 0.45 & 3.97 \\
+0.8 & 0.44 & \textbf{0.46} & 5.23 \\
+1.0 & 0.46 & \textbf{0.47} & 6.57 \\
+\bottomrule
+\end{tabular}
+\caption{Predicted trend: frictional energy grows linearly with conflict; FIF remains stable or improves slightly under noise.}
+\end{table}
+
+These results are qualitative; no optimization or hyperparameter search was conducted.
+Nevertheless, the linearity of energy and the stable behavior suggest the architecture's potential robustness.
+
+\section{Discussion}
+FIF changes the semantics of connection:
+in attention, connection means ``which input I attend to'';
+in FIF, connection means ``which forces reach equilibrium.''
+Thus, FIF can handle contradictory inputs more gracefully, exhibiting dynamics closer to real neural processes, where cognition emerges from balancing tension, not maximizing similarity.
+
+\section{Conclusion}
+FIF redefines the notion of connection as \emph{dissipative coupling}.
+By replacing softmax attention with energy equilibrium, we obtain a stable, symmetric, interpretable inductive bias that naturally produces a measure of internal cognitive effort.
+While current prototypes are toy-level, we hypothesize that such energy-based dynamics may lead to more self-regulating and, in a deeper sense, more intelligent systems.
+
+\section*{Acknowledgments}
+We thank collaborators and critics for helpful discussions.
+This work remains an early conceptual prototype and is intended solely for exploratory publication.
+
+\bibliographystyle{plain}
+\begin{thebibliography}{9}
+\bibitem{ebm} LeCun et al. Energy-Based Models in Deep Learning.
+% 修正：& 必须转义为 \&
+\bibitem{laplace} Zhou \& Schölkopf, Regularization with Laplacian energy.
+\bibitem{iit} Tononi, Integrated Information Theory.
+\end{thebibliography}
+
+\end{document}
