@@ -10,5 +10,8 @@ python -m fif_mvp.cli.run_experiment \
   --batch_size 256 \
   --lr 3e-4 \
   --seed "${SEED}" \
+  --friction.K 1 \
+  --friction.radius 2 \
+  --friction.neighbor window \
   --workers 4 \
   --save_dir ./result

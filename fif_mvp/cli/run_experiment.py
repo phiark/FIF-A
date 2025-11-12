@@ -92,6 +92,11 @@ def parse_args() -> argparse.Namespace:
         default=-1,
         help="DataLoader workers (-1 = auto for CUDA, 0 = main thread).",
     )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Enable deterministic algorithms (slower). By default disabled for speed.",
+    )
     return parser.parse_args()
 
 
@@ -248,10 +253,17 @@ def main() -> None:
                         "tf32" if major >= 8 else "ieee"
                     )
             torch.backends.cudnn.benchmark = True
-            if hasattr(torch, "set_float32_matmul_precision"):
+            # Only set float32 matmul precision on Ampere+ to avoid warnings on V100
+            if hasattr(torch, "set_float32_matmul_precision") and major >= 8:
                 torch.set_float32_matmul_precision("high")
         except Exception:
             pass
+
+    # Determinism: default off for performance unless explicitly requested
+    try:
+        torch.use_deterministic_algorithms(args.deterministic, warn_only=not args.deterministic)
+    except Exception:
+        pass
 
     data_bundle = build_dataloaders(
         task=config.task,

@@ -14,6 +14,9 @@ for intensity in "${INTENSITIES[@]}"; do
     --seed "${SEED}" \
     --energy_reg_weight 1e-4 \
     --noise_intensity "${intensity}" \
+    --friction.K 1 \
+    --friction.radius 2 \
+    --friction.neighbor window \
     --workers 4 \
     --save_dir ./result
 done
