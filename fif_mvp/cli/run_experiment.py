@@ -73,6 +73,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--save_dir", type=str, required=True, help="Must reside under ./result"
     )
+    # Acceleration toggles
+    parser.add_argument(
+        "--no_amp",
+        action="store_true",
+        help="Disable CUDA automatic mixed precision (enabled by default on NVIDIA).",
+    )
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="Use torch.compile to optimize the model (PyTorch 2.x).",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=-1,
+        help="DataLoader workers (-1 = auto for CUDA, 0 = main thread).",
+    )
     return parser.parse_args()
 
 
@@ -191,6 +208,8 @@ def main() -> None:
         train_noise_levels=train_noise_levels,
         noise_vocab=train_noise_levels,
         energy_reg_weight=args.energy_reg_weight,
+        use_amp=not args.no_amp,
+        compile_model=args.compile,
     )
 
     set_seed(config.seed)
@@ -205,6 +224,18 @@ def main() -> None:
     config.vocab_size = len(tokenizer)
     config.tokenizer_name = args.tokenizer
 
+    # Tune CUDA backends when using NVIDIA GPUs
+    if device_choice.device == "cuda":
+        try:
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+            # Prefer higher precision matmul kernels when in FP32
+            if hasattr(torch, "set_float32_matmul_precision"):
+                torch.set_float32_matmul_precision("high")
+        except Exception:
+            pass
+
     data_bundle = build_dataloaders(
         task=config.task,
         tokenizer=tokenizer,
@@ -213,6 +244,7 @@ def main() -> None:
         seed=config.seed,
         noise_intensity=config.noise_intensity,
         train_noise_levels=train_noise_levels,
+        workers=(None if args.workers < 0 else args.workers),
     )
     config.num_labels = data_bundle.num_labels
     config.noise_vocab = data_bundle.noise_vocab
@@ -249,6 +281,12 @@ def run_with_device(
         )
 
     model = build()
+    if config.compile_model and hasattr(torch, "compile"):
+        try:
+            model = torch.compile(model, mode="default", fullgraph=False)
+            print("[Compile] Model compiled with torch.compile")
+        except Exception as exc:  # pragma: no cover - backend dependent
+            emit_warning(f"torch.compile failed: {exc}. Proceeding without compilation.")
     try:
         run_training(
             config=config, model=model, loaders=data_bundle.loaders, save_dir=run_dir

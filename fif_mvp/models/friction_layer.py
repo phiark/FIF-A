@@ -39,6 +39,8 @@ class FrictionLayer(nn.Module):
         batch_size, seq_len, _ = hidden.shape
         outputs = torch.zeros_like(hidden)
         per_sample_energy = []
+        # Reuse window edges per unique length within the batch to avoid redundant transfers
+        local_edge_cache: dict[int, torch.Tensor] = {}
 
         for b in range(batch_size):
             length = int(attention_mask[b].sum().item())
@@ -48,7 +50,7 @@ class FrictionLayer(nn.Module):
                 continue
             seq_hidden = hidden[b, :length]
             seq_mask = attention_mask[b, :length]
-            edges = self._build_edges(seq_hidden, seq_mask)
+            edges = self._build_edges(seq_hidden, seq_mask, local_edge_cache)
             seq_out, seq_energy = self._run_single(seq_hidden, edges)
             padded = hidden[b].clone()
             padded[:length] = seq_out
@@ -59,14 +61,19 @@ class FrictionLayer(nn.Module):
         return outputs, per_sample
 
     def _build_edges(
-        self, seq_hidden: torch.Tensor, seq_mask: torch.Tensor
+        self, seq_hidden: torch.Tensor, seq_mask: torch.Tensor, cache: dict[int, torch.Tensor] | None = None
     ) -> torch.Tensor:
         length = seq_hidden.size(0)
         device = seq_hidden.device
         if self.config.neighbor == "window":
-            return sparse_utils.build_window_edges(
+            if cache is not None and length in cache:
+                return cache[length]
+            edges = sparse_utils.build_window_edges(
                 length, radius=self.config.radius, device=device
             )
+            if cache is not None:
+                cache[length] = edges
+            return edges
         return sparse_utils.build_knn_edges(seq_hidden, seq_mask, k=self.config.k)
 
     def _run_single(

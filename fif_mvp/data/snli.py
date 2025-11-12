@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, Dict, Tuple
+from typing import Callable, Dict, Tuple, Optional
 
 from datasets import DatasetDict, load_dataset
 from torch.utils.data import DataLoader
@@ -14,6 +14,7 @@ def load_snli(
     max_length: int,
     seed: int,
     collate_fn: Callable,
+    loader_kwargs: Optional[Dict] = None,
 ) -> Tuple[Dict[str, DataLoader], Dict]:
     """Load SNLI via the datasets hub."""
 
@@ -46,6 +47,8 @@ def load_snli(
     )
     dataset.set_format(type="python")
 
+    loader_kwargs = loader_kwargs or {}
+    loader_kwargs = {k: v for k, v in loader_kwargs.items() if v is not None}
     loaders: Dict[str, DataLoader] = {}
     for split in ("train", "validation", "test"):
         shuffle = split == "train"
@@ -54,6 +57,7 @@ def load_snli(
             batch_size=batch_size,
             shuffle=shuffle,
             collate_fn=collate_fn,
+            **loader_kwargs,
         )
 
     label_names = ["entailment", "neutral", "contradiction"]

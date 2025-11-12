@@ -11,6 +11,9 @@ import numpy as np
 import pandas as pd
 import torch
 from torch import nn
+from torch.cuda.amp import GradScaler
+import contextlib
+import torch as _torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -44,6 +47,7 @@ class Trainer:
         )
         self.scheduler: Optional[torch.optim.lr_scheduler.LambdaLR] = None
         self.step_times: List[float] = []
+        self.scaler = GradScaler(enabled=(self.config.use_amp and device.type == "cuda"))
 
     def _build_scheduler(
         self, total_steps: int
@@ -164,23 +168,41 @@ class Trainer:
                 break
             batch = self._to_device(batch)
             step_start = time.perf_counter()
-            outputs: ModelOutput = self.model(
-                batch["input_ids"],
-                batch["attention_mask"],
-                batch.get("noise_level_ids"),
-            )
-            ce_loss = self.criterion(outputs.logits, batch["labels"])
+            amp_enabled = self.scaler.is_enabled() or (self.config.use_amp and self.device.type == "mps")
+            if self.device.type == "cuda":
+                amp_cm = _torch.cuda.amp.autocast(enabled=self.scaler.is_enabled())
+            elif self.device.type == "mps" and hasattr(_torch, "autocast"):
+                amp_cm = _torch.autocast(device_type="mps", enabled=self.config.use_amp)
+            else:
+                amp_cm = contextlib.nullcontext()
+            with amp_cm:
+                outputs: ModelOutput = self.model(
+                    batch["input_ids"],
+                    batch["attention_mask"],
+                    batch.get("noise_level_ids"),
+                )
+                ce_loss = self.criterion(outputs.logits, batch["labels"])
             loss = ce_loss
             if self.config.energy_reg_weight > 0.0:
                 reg = torch.log1p(outputs.batch_energy.clamp_min(0.0))
                 loss = loss + self.config.energy_reg_weight * reg
             if not torch.isfinite(loss):
                 raise RuntimeError("Loss became non-finite.")
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                self.model.parameters(), self.config.optimization.grad_clip
-            )
-            self.optimizer.step()
+            if amp_enabled:
+                self.scaler.scale(loss).backward()
+                # Unscale before clipping
+                self.scaler.unscale_(self.optimizer)
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self.config.optimization.grad_clip
+                )
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self.config.optimization.grad_clip
+                )
+                self.optimizer.step()
             if self.scheduler:
                 self.scheduler.step()
             self.optimizer.zero_grad(set_to_none=True)
@@ -242,11 +264,19 @@ class Trainer:
         with torch.no_grad():
             for batch in loader:
                 batch = self._to_device(batch)
-                outputs: ModelOutput = self.model(
-                    batch["input_ids"],
-                    batch["attention_mask"],
-                    batch.get("noise_level_ids"),
-                )
+                amp_enabled = self.scaler.is_enabled() or (self.config.use_amp and self.device.type == "mps")
+                if self.device.type == "cuda":
+                    amp_cm = _torch.cuda.amp.autocast(enabled=self.scaler.is_enabled())
+                elif self.device.type == "mps" and hasattr(_torch, "autocast"):
+                    amp_cm = _torch.autocast(device_type="mps", enabled=self.config.use_amp)
+                else:
+                    amp_cm = contextlib.nullcontext()
+                with amp_cm:
+                    outputs: ModelOutput = self.model(
+                        batch["input_ids"],
+                        batch["attention_mask"],
+                        batch.get("noise_level_ids"),
+                    )
                 loss = self.criterion(outputs.logits, batch["labels"])
                 losses.append(loss.item())
                 all_logits.append(outputs.logits.detach().cpu())
@@ -337,8 +367,10 @@ class Trainer:
             json.dump(timing, f, indent=2)
 
     def _to_device(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        non_blocking = self.device.type == "cuda"
         return {
-            k: (v.to(self.device) if hasattr(v, "to") else v) for k, v in batch.items()
+            k: (v.to(self.device, non_blocking=non_blocking) if hasattr(v, "to") else v)
+            for k, v in batch.items()
         }
 
 

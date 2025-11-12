@@ -58,6 +58,9 @@ class ExperimentConfig:
     noise_vocab: List[str] = field(default_factory=lambda: ["clean"])
     train_noise_levels: List[str] = field(default_factory=list)
     energy_reg_weight: float = 0.0
+    # Acceleration options
+    use_amp: bool = True
+    compile_model: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the config to a plain dict."""

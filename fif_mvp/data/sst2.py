@@ -24,6 +24,7 @@ def load_sst2(
     collate_fn: Callable,
     noise_settings: Optional[Dict[str, float]] = None,
     train_noise_levels: Optional[List[str]] = None,
+    loader_kwargs: Optional[Dict] = None,
 ) -> Tuple[Dict[str, DataLoader], Dict]:
     """Load SST-2, optionally applying evaluation noise."""
 
@@ -105,12 +106,17 @@ def load_sst2(
     dataset = DatasetDict(processed_splits)
     dataset.set_format(type="python")
 
+    loader_kwargs = loader_kwargs or {}
+    # Remove None-valued kwargs to avoid TypeErrors on older PyTorch
+    loader_kwargs = {k: v for k, v in loader_kwargs.items() if v is not None}
+
     loaders = {
         split: DataLoader(
             dataset[split],
             batch_size=batch_size,
             shuffle=(split == "train"),
             collate_fn=collate_fn,
+            **loader_kwargs,
         )
         for split in ("train", "validation", "test")
     }

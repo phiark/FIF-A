@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+import os
+import torch
 
 import torch
 from torch.utils.data import DataLoader
@@ -71,10 +73,29 @@ def build_dataloaders(
     seed: int,
     noise_intensity: Optional[str] = None,
     train_noise_levels: Optional[List[str]] = None,
+    workers: Optional[int] = None,
 ) -> DataBundle:
     """Return dataloaders and metadata for the requested task."""
 
     noise_vocab = train_noise_levels or DEFAULT_NOISE_LEVELS
+    # Loader performance knobs (auto-tuned for GPU backends)
+    has_cuda = torch.cuda.is_available()
+    has_mps = getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available()
+    prefer_accel = has_cuda or has_mps
+    auto_workers = min(8, max(0, (os.cpu_count() or 1) - 1))
+    if workers is not None and workers >= 0:
+        num_workers = workers
+    else:
+        num_workers = auto_workers if prefer_accel else 0
+    # pin_memory only benefits CUDA
+    pin_memory = has_cuda
+    persistent_workers = num_workers > 0
+    common_loader_args = dict(
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=persistent_workers,
+        prefetch_factor=2 if num_workers > 0 else None,
+    )
     collator = SequenceCollator(
         pad_token_id=tokenizer.pad_token_id, noise_vocab=noise_vocab
     )
@@ -85,6 +106,7 @@ def build_dataloaders(
             max_length=max_length,
             seed=seed,
             collate_fn=collator,
+            loader_kwargs=common_loader_args,
         )
         return DataBundle(
             loaders=loaders,
@@ -100,6 +122,7 @@ def build_dataloaders(
             max_length=max_length,
             seed=seed,
             collate_fn=collator,
+            loader_kwargs=common_loader_args,
             noise_settings=None,
         )
         return DataBundle(
@@ -122,6 +145,7 @@ def build_dataloaders(
             max_length=max_length,
             seed=seed,
             collate_fn=collator,
+            loader_kwargs=common_loader_args,
             noise_settings={"level": intensity, **noise_config},
             train_noise_levels=train_noise_levels or list(noise_vocab),
         )
