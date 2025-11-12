@@ -287,6 +287,11 @@ def run_with_device(
             print("[Compile] Model compiled with torch.compile")
         except Exception as exc:  # pragma: no cover - backend dependent
             emit_warning(f"torch.compile failed: {exc}. Proceeding without compilation.")
+
+    # Simple multi-GPU via DataParallel for CUDA
+    if device_choice.device == "cuda" and torch.cuda.device_count() > 1:
+        print(f"[Multi-GPU] Using DataParallel on {torch.cuda.device_count()} GPUs")
+        model = torch.nn.DataParallel(model)
     try:
         run_training(
             config=config, model=model, loaders=data_bundle.loaders, save_dir=run_dir

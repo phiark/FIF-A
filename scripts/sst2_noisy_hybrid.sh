@@ -9,10 +9,11 @@ for intensity in "${INTENSITIES[@]}"; do
     --task sst2_noisy \
     --model hybrid \
     --epochs 5 \
-    --batch_size 64 \
+    --batch_size 256 \
     --lr 3e-4 \
     --seed "${SEED}" \
     --energy_reg_weight 1e-4 \
     --noise_intensity "${intensity}" \
+    --workers 8 \
     --save_dir ./result
 done
