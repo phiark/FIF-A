@@ -6,6 +6,7 @@ from typing import Callable, Dict, Tuple, Optional
 
 from datasets import DatasetDict, load_dataset
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 
 def load_snli(
@@ -15,6 +16,9 @@ def load_snli(
     seed: int,
     collate_fn: Callable,
     loader_kwargs: Optional[Dict] = None,
+    distributed: bool = False,
+    world_size: Optional[int] = None,
+    rank: Optional[int] = None,
 ) -> Tuple[Dict[str, DataLoader], Dict]:
     """Load SNLI via the datasets hub."""
 
@@ -52,10 +56,21 @@ def load_snli(
     loaders: Dict[str, DataLoader] = {}
     for split in ("train", "validation", "test"):
         shuffle = split == "train"
+        sampler = None
+        if distributed and split == "train":
+            sampler = DistributedSampler(
+                dataset[split],
+                num_replicas=world_size or 1,
+                rank=rank or 0,
+                shuffle=True,
+                drop_last=False,
+            )
+            shuffle = False
         loaders[split] = DataLoader(
             dataset[split],
             batch_size=batch_size,
             shuffle=shuffle,
+            sampler=sampler,
             collate_fn=collate_fn,
             **loader_kwargs,
         )

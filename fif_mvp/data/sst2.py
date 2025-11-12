@@ -7,6 +7,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from datasets import DatasetDict, concatenate_datasets, load_dataset
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 from .noise import (
     DEFAULT_NOISE_LEVELS,
@@ -25,6 +26,9 @@ def load_sst2(
     noise_settings: Optional[Dict[str, float]] = None,
     train_noise_levels: Optional[List[str]] = None,
     loader_kwargs: Optional[Dict] = None,
+    distributed: bool = False,
+    world_size: Optional[int] = None,
+    rank: Optional[int] = None,
 ) -> Tuple[Dict[str, DataLoader], Dict]:
     """Load SST-2, optionally applying evaluation noise."""
 
@@ -110,16 +114,27 @@ def load_sst2(
     # Remove None-valued kwargs to avoid TypeErrors on older PyTorch
     loader_kwargs = {k: v for k, v in loader_kwargs.items() if v is not None}
 
-    loaders = {
-        split: DataLoader(
+    loaders: Dict[str, DataLoader] = {}
+    for split in ("train", "validation", "test"):
+        shuffle = split == "train"
+        sampler = None
+        if distributed and split == "train":
+            sampler = DistributedSampler(
+                dataset[split],
+                num_replicas=world_size or 1,
+                rank=rank or 0,
+                shuffle=True,
+                drop_last=False,
+            )
+            shuffle = False
+        loaders[split] = DataLoader(
             dataset[split],
             batch_size=batch_size,
-            shuffle=(split == "train"),
+            shuffle=shuffle,
+            sampler=sampler,
             collate_fn=collate_fn,
             **loader_kwargs,
         )
-        for split in ("train", "validation", "test")
-    }
 
     return loaders, {
         "label_names": ["negative", "positive"],

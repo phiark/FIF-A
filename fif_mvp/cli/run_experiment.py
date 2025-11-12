@@ -97,6 +97,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable deterministic algorithms (slower). By default disabled for speed.",
     )
+    parser.add_argument(
+        "--ddp",
+        action="store_true",
+        help="Enable DistributedDataParallel via torchrun (single-node).",
+    )
     return parser.parse_args()
 
 
@@ -158,6 +163,8 @@ def main() -> None:
     train_noise_levels = [
         level.strip() for level in args.train_noise_levels.split(",") if level.strip()
     ] or ["clean"]
+    import os
+    is_ddp = bool(os.environ.get("LOCAL_RANK") is not None) or False
     device_choice = choose_device()
     print(f"[Device] Preferred backend: {device_choice.description}")
     ready, error_msg = verify_device(device_choice)
@@ -182,7 +189,11 @@ def main() -> None:
     run_name_parts.append(args.model)
     run_name = "_".join(run_name_parts) + f"_{timestamp}_seed{args.seed}"
     run_dir = base_result / run_name
-    run_dir.mkdir(parents=True, exist_ok=False)
+    # In DDP, only rank 0 should create the new directory
+    if is_ddp and int(os.environ.get("LOCAL_RANK", 0)) != 0:
+        run_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        run_dir.mkdir(parents=True, exist_ok=False)
 
     friction = FrictionConfig(
         K=args.friction_K,
@@ -265,6 +276,10 @@ def main() -> None:
     except Exception:
         pass
 
+    # DDP distributed flags
+    world_size = int(os.environ.get("WORLD_SIZE", "1")) if 'WORLD_SIZE' in os.environ else 1
+    rank_env = int(os.environ.get("RANK", "0")) if 'RANK' in os.environ else 0
+
     data_bundle = build_dataloaders(
         task=config.task,
         tokenizer=tokenizer,
@@ -274,14 +289,18 @@ def main() -> None:
         noise_intensity=config.noise_intensity,
         train_noise_levels=train_noise_levels,
         workers=(None if args.workers < 0 else args.workers),
+        distributed=(world_size > 1),
+        world_size=world_size,
+        rank=rank_env,
     )
     config.num_labels = data_bundle.num_labels
     config.noise_vocab = data_bundle.noise_vocab
 
-    save_config(run_dir / "config.json", config.to_dict())
-    write_env(run_dir / "env.txt", device_choice)
-    if data_bundle.noise_config:
-        save_json(run_dir / "noise_config.json", data_bundle.noise_config)
+    if (not is_ddp) or int(os.environ.get("LOCAL_RANK", 0)) == 0:
+        save_config(run_dir / "config.json", config.to_dict())
+        write_env(run_dir / "env.txt", device_choice)
+        if data_bundle.noise_config:
+            save_json(run_dir / "noise_config.json", data_bundle.noise_config)
 
     run_with_device(
         config=config,
@@ -309,19 +328,40 @@ def run_with_device(
             pad_token_id=tokenizer.pad_token_id,
         )
 
+    import os
+    is_ddp = bool(os.environ.get("LOCAL_RANK") is not None)
+    if is_ddp:
+        # Initialize process group
+        import torch.distributed as dist
+        if not dist.is_initialized():
+            dist.init_process_group(backend="nccl")
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        global_rank = int(os.environ.get("RANK", 0))
+        world_size = int(os.environ.get("WORLD_SIZE", 1))
+        torch.cuda.set_device(local_rank)
+        config.distributed = True
+        config.rank = global_rank
+        config.world_size = world_size
+        config.device = f"cuda:{local_rank}"
+
     model = build()
-    if config.compile_model and hasattr(torch, "compile"):
+    if config.compile_model and hasattr(torch, "compile") and not is_ddp:
         try:
             model = torch.compile(model, mode="default", fullgraph=False)
             print("[Compile] Model compiled with torch.compile")
         except Exception as exc:  # pragma: no cover - backend dependent
             emit_warning(f"torch.compile failed: {exc}. Proceeding without compilation.")
 
-    # Simple multi-GPU via DataParallel for CUDA
-    if device_choice.device == "cuda" and torch.cuda.device_count() > 1:
+    # Simple multi-GPU via DataParallel for CUDA (non-DDP)
+    if (device_choice.device == "cuda" and torch.cuda.device_count() > 1) and not is_ddp:
         print(f"[Multi-GPU] Using DataParallel on {torch.cuda.device_count()} GPUs")
         from fif_mvp.models import DataParallelFriendly
         model = torch.nn.DataParallel(DataParallelFriendly(model))
+    # DDP wrapping
+    if is_ddp:
+        from torch.nn.parallel import DistributedDataParallel as DDP
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        model = DDP(model.to(config.device), device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
     try:
         run_training(
             config=config, model=model, loaders=data_bundle.loaders, save_dir=run_dir
@@ -336,7 +376,8 @@ def run_with_device(
         cpu_choice = DeviceChoice(
             device="cpu", description="CPU execution", brand="CPU", backend="CPU"
         )
-        write_env(run_dir / "env.txt", cpu_choice)
+        if (not is_ddp) or int(os.environ.get("LOCAL_RANK", 0)) == 0:
+            write_env(run_dir / "env.txt", cpu_choice)
         model = build()
         run_training(
             config=config, model=model, loaders=data_bundle.loaders, save_dir=run_dir

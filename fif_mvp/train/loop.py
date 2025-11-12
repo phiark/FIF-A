@@ -50,6 +50,8 @@ class Trainer:
         self.scaler = (
             torch.amp.GradScaler("cuda") if (self.config.use_amp and device.type == "cuda") else None
         )
+        self.rank = getattr(config, "rank", 0)
+        self.world_size = getattr(config, "world_size", 1)
 
     def _build_scheduler(
         self, total_steps: int
@@ -141,14 +143,15 @@ class Trainer:
             }
         )
 
-        pd.DataFrame(metrics_rows).to_csv(
-            self.save_dir / "metrics_epoch.csv", index=False
-        )
-        pd.DataFrame(energy_rows).to_csv(
-            self.save_dir / "energy_epoch.csv", index=False
-        )
-        self._write_test_summary(test_metrics)
-        self._write_timing(timer.elapsed)
+        if self.rank == 0:
+            pd.DataFrame(metrics_rows).to_csv(
+                self.save_dir / "metrics_epoch.csv", index=False
+            )
+            pd.DataFrame(energy_rows).to_csv(
+                self.save_dir / "energy_epoch.csv", index=False
+            )
+            self._write_test_summary(test_metrics)
+            self._write_timing(timer.elapsed)
         return test_metrics
 
     def _run_epoch(
@@ -164,7 +167,14 @@ class Trainer:
         labels: List[int] = []
         energy_terms: List[float] = []
 
-        progress = tqdm(loader, desc=f"epoch {epoch}", leave=False)
+        # If using DistributedSampler, set epoch for shuffling
+        sampler = getattr(loader, "sampler", None)
+        if hasattr(sampler, "set_epoch"):
+            try:
+                sampler.set_epoch(epoch)
+            except Exception:
+                pass
+        progress = tqdm(loader, desc=f"epoch {epoch}", leave=False, disable=(self.rank != 0))
         for batch in progress:
             if global_step >= total_steps:
                 break
@@ -234,7 +244,8 @@ class Trainer:
         energy_log_mean = float(np.mean(np.log1p(np.maximum(energy_array, 0.0))))
         ece = 0.0  # training split uses argmax only
         avg_loss = float(np.mean(losses)) if losses else 0.0
-        self.logger.info(
+        if self.rank == 0:
+            self.logger.info(
             "epoch=%s step=%s train_loss=%.4f acc=%.4f f1=%.4f energy=%.4f elog=%.4f",
             epoch,
             global_step,
@@ -263,6 +274,16 @@ class Trainer:
         record_confusion: bool = False,
         compute_correlation: bool = False,
     ) -> Dict[str, float]:
+        if self.rank != 0 and self.world_size > 1:
+            # Skip validation/test on non-zero ranks to avoid duplication
+            return {
+                "loss": 0.0,
+                "acc": 0.0,
+                "macro_f1": 0.0,
+                "ece": 0.0,
+                "energy_mean": 0.0,
+                "energy_log_mean": 0.0,
+            }
         self.model.eval()
         all_logits: List[torch.Tensor] = []
         all_labels: List[torch.Tensor] = []
@@ -349,7 +370,8 @@ class Trainer:
                 df.to_csv(self.save_dir / "energy_per_sample.csv", index=False)
 
         tag = f"{split} epoch={epoch}" if epoch else split
-        self.logger.info(
+        if self.rank == 0:
+            self.logger.info(
             "%s loss=%.4f acc=%.4f f1=%.4f ece=%.4f energy=%.4f elog=%.4f",
             tag,
             metrics["loss"],

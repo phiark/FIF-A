@@ -74,6 +74,9 @@ def build_dataloaders(
     noise_intensity: Optional[str] = None,
     train_noise_levels: Optional[List[str]] = None,
     workers: Optional[int] = None,
+    distributed: bool = False,
+    world_size: Optional[int] = None,
+    rank: Optional[int] = None,
 ) -> DataBundle:
     """Return dataloaders and metadata for the requested task."""
 
@@ -107,6 +110,9 @@ def build_dataloaders(
             seed=seed,
             collate_fn=collator,
             loader_kwargs=common_loader_args,
+            distributed=distributed,
+            world_size=world_size,
+            rank=rank,
         )
         return DataBundle(
             loaders=loaders,
@@ -124,6 +130,9 @@ def build_dataloaders(
             collate_fn=collator,
             loader_kwargs=common_loader_args,
             noise_settings=None,
+            distributed=distributed,
+            world_size=world_size,
+            rank=rank,
         )
         return DataBundle(
             loaders=loaders,
@@ -148,6 +157,9 @@ def build_dataloaders(
             loader_kwargs=common_loader_args,
             noise_settings={"level": intensity, **noise_config},
             train_noise_levels=train_noise_levels or list(noise_vocab),
+            distributed=distributed,
+            world_size=world_size,
+            rank=rank,
         )
         return DataBundle(
             loaders=loaders,

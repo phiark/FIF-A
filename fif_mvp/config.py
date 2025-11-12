@@ -61,6 +61,10 @@ class ExperimentConfig:
     # Acceleration options
     use_amp: bool = True
     compile_model: bool = False
+    # Distributed options
+    distributed: bool = False
+    rank: int = 0
+    world_size: int = 1
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the config to a plain dict."""
