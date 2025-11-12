@@ -1,2 +1,32 @@
+# macOS
 .DS_Store
 **/.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Jupyter/IPython
+.ipynb_checkpoints/
+
+# Project outputs
+result/
+*.log
+*.tmp
+
+# IDEs/editors
+.vscode/
+.idea/
