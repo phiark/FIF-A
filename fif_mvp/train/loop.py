@@ -176,11 +176,19 @@ class Trainer:
             else:
                 amp_cm = contextlib.nullcontext()
             with amp_cm:
-                outputs: ModelOutput = self.model(
+                outputs = self.model(
                     batch["input_ids"],
                     batch["attention_mask"],
                     batch.get("noise_level_ids"),
                 )
+                if not isinstance(outputs, ModelOutput):
+                    logits, per_sample_energy, batch_energy, hidden_states = outputs
+                    outputs = ModelOutput(
+                        logits=logits,
+                        per_sample_energy=per_sample_energy,
+                        batch_energy=batch_energy,
+                        hidden_states=hidden_states,
+                    )
                 ce_loss = self.criterion(outputs.logits, batch["labels"])
             loss = ce_loss
             if self.config.energy_reg_weight > 0.0:
@@ -272,10 +280,18 @@ class Trainer:
                 else:
                     amp_cm = contextlib.nullcontext()
                 with amp_cm:
-                    outputs: ModelOutput = self.model(
+                    outputs = self.model(
                         batch["input_ids"],
                         batch["attention_mask"],
                         batch.get("noise_level_ids"),
+                    )
+                if not isinstance(outputs, ModelOutput):
+                    logits, per_sample_energy, batch_energy, hidden_states = outputs
+                    outputs = ModelOutput(
+                        logits=logits,
+                        per_sample_energy=per_sample_energy,
+                        batch_energy=batch_energy,
+                        hidden_states=hidden_states,
                     )
                 loss = self.criterion(outputs.logits, batch["labels"])
                 losses.append(loss.item())

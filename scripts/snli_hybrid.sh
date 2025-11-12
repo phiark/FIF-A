@@ -10,5 +10,5 @@ python -m fif_mvp.cli.run_experiment \
   --batch_size 256 \
   --lr 3e-4 \
   --seed "${SEED}" \
-  --workers 8 \
+  --workers 4 \
   --save_dir ./result

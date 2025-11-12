@@ -145,6 +145,9 @@ def emit_warning(message: str) -> None:
 
 def main() -> None:
     args = parse_args()
+    # Avoid tokenizer multiprocessing + DataLoader workers deadlock warnings
+    import os as _os
+    _os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     train_noise_levels = [
         level.strip() for level in args.train_noise_levels.split(",") if level.strip()
     ] or ["clean"]
@@ -227,10 +230,22 @@ def main() -> None:
     # Tune CUDA backends when using NVIDIA GPUs
     if device_choice.device == "cuda":
         try:
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
+            # New-style TF32/matmul controls (avoid deprecated flags)
+            if torch.cuda.is_available():
+                major, _ = torch.cuda.get_device_capability(0)
+                if hasattr(torch.backends.cuda, "matmul") and hasattr(
+                    torch.backends.cuda.matmul, "fp32_precision"
+                ):
+                    torch.backends.cuda.matmul.fp32_precision = (
+                        "tf32" if major >= 8 else "ieee"
+                    )
+                if hasattr(torch.backends, "cudnn") and hasattr(
+                    torch.backends.cudnn, "conv"
+                ) and hasattr(torch.backends.cudnn.conv, "fp32_precision"):
+                    torch.backends.cudnn.conv.fp32_precision = (
+                        "tf32" if major >= 8 else "ieee"
+                    )
             torch.backends.cudnn.benchmark = True
-            # Prefer higher precision matmul kernels when in FP32
             if hasattr(torch, "set_float32_matmul_precision"):
                 torch.set_float32_matmul_precision("high")
         except Exception:
@@ -291,7 +306,8 @@ def run_with_device(
     # Simple multi-GPU via DataParallel for CUDA
     if device_choice.device == "cuda" and torch.cuda.device_count() > 1:
         print(f"[Multi-GPU] Using DataParallel on {torch.cuda.device_count()} GPUs")
-        model = torch.nn.DataParallel(model)
+        from fif_mvp.models import DataParallelFriendly
+        model = torch.nn.DataParallel(DataParallelFriendly(model))
     try:
         run_training(
             config=config, model=model, loaders=data_bundle.loaders, save_dir=run_dir

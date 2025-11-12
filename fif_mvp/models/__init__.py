@@ -20,6 +20,24 @@ class ModelOutput:
     hidden_states: torch.Tensor
 
 
+class DataParallelFriendly(torch.nn.Module):
+    """Adapter that converts ModelOutput to a tuple for DataParallel gather.
+
+    DataParallel cannot gather custom dataclasses; returning a tuple of tensors
+    allows built-in gather to work correctly across devices.
+    """
+
+    def __init__(self, module: torch.nn.Module) -> None:
+        super().__init__()
+        self.module = module
+
+    def forward(self, *args, **kwargs):  # type: ignore[override]
+        out = self.module(*args, **kwargs)
+        if isinstance(out, ModelOutput):
+            return (out.logits, out.per_sample_energy, out.batch_energy, out.hidden_states)
+        return out
+
+
 from .hybrid_model import HybridClassifier  # noqa: E402
 from .transformer_baseline import TransformerClassifier  # noqa: E402
 
