@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import os as _os
+_os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 import json
 import sys
 from dataclasses import dataclass

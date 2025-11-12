@@ -10,10 +10,9 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 import torch
+from contextlib import nullcontext
 from torch import nn
-from torch.cuda.amp import GradScaler
-import contextlib
-import torch as _torch
+import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -47,7 +46,10 @@ class Trainer:
         )
         self.scheduler: Optional[torch.optim.lr_scheduler.LambdaLR] = None
         self.step_times: List[float] = []
-        self.scaler = GradScaler(enabled=(self.config.use_amp and device.type == "cuda"))
+        # New torch.amp API (only for CUDA)
+        self.scaler = (
+            torch.amp.GradScaler("cuda") if (self.config.use_amp and device.type == "cuda") else None
+        )
 
     def _build_scheduler(
         self, total_steps: int
@@ -168,13 +170,12 @@ class Trainer:
                 break
             batch = self._to_device(batch)
             step_start = time.perf_counter()
-            amp_enabled = self.scaler.is_enabled() or (self.config.use_amp and self.device.type == "mps")
             if self.device.type == "cuda":
-                amp_cm = _torch.cuda.amp.autocast(enabled=self.scaler.is_enabled())
-            elif self.device.type == "mps" and hasattr(_torch, "autocast"):
-                amp_cm = _torch.autocast(device_type="mps", enabled=self.config.use_amp)
+                amp_cm = torch.amp.autocast("cuda", enabled=bool(self.scaler))
+            elif self.device.type == "mps" and hasattr(torch, "autocast"):
+                amp_cm = torch.autocast(device_type="mps", enabled=self.config.use_amp)
             else:
-                amp_cm = contextlib.nullcontext()
+                amp_cm = nullcontext()
             with amp_cm:
                 outputs = self.model(
                     batch["input_ids"],
@@ -196,9 +197,8 @@ class Trainer:
                 loss = loss + self.config.energy_reg_weight * reg
             if not torch.isfinite(loss):
                 raise RuntimeError("Loss became non-finite.")
-            if amp_enabled:
+            if self.scaler is not None:
                 self.scaler.scale(loss).backward()
-                # Unscale before clipping
                 self.scaler.unscale_(self.optimizer)
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(), self.config.optimization.grad_clip
@@ -272,13 +272,12 @@ class Trainer:
         with torch.no_grad():
             for batch in loader:
                 batch = self._to_device(batch)
-                amp_enabled = self.scaler.is_enabled() or (self.config.use_amp and self.device.type == "mps")
                 if self.device.type == "cuda":
-                    amp_cm = _torch.cuda.amp.autocast(enabled=self.scaler.is_enabled())
-                elif self.device.type == "mps" and hasattr(_torch, "autocast"):
-                    amp_cm = _torch.autocast(device_type="mps", enabled=self.config.use_amp)
+                    amp_cm = torch.amp.autocast("cuda", enabled=bool(self.scaler))
+                elif self.device.type == "mps" and hasattr(torch, "autocast"):
+                    amp_cm = torch.autocast(device_type="mps", enabled=self.config.use_amp)
                 else:
-                    amp_cm = contextlib.nullcontext()
+                    amp_cm = nullcontext()
                 with amp_cm:
                     outputs = self.model(
                         batch["input_ids"],

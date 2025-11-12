@@ -8,7 +8,6 @@ import torch
 from torch import nn
 
 from fif_mvp.config import FrictionConfig
-from fif_mvp.models import ModelOutput
 from fif_mvp.train import energy as energy_utils
 
 from .friction_layer import FrictionLayer
@@ -56,7 +55,7 @@ class HybridClassifier(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         noise_level_ids: Optional[torch.Tensor] = None,
-    ) -> ModelOutput:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size, seq_len = input_ids.shape
         positions = (
             torch.arange(seq_len, device=input_ids.device)
@@ -84,12 +83,7 @@ class HybridClassifier(nn.Module):
         energy_terms.append(fallback_energy)
         per_sample_energy = torch.stack(energy_terms, dim=0).sum(dim=0)
         batch_energy = per_sample_energy.mean()
-        return ModelOutput(
-            logits=logits,
-            per_sample_energy=per_sample_energy,
-            batch_energy=batch_energy,
-            hidden_states=hidden,
-        )
+        return (logits, per_sample_energy, batch_energy, hidden)
 
     @staticmethod
     def _pool(hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
