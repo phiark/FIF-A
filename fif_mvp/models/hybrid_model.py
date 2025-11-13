@@ -79,9 +79,10 @@ class HybridClassifier(nn.Module):
 
         pooled = self._pool(hidden, attention_mask)
         logits = self.classifier(self.norm(pooled))
-        fallback_energy = energy_utils.sequence_energy(hidden, attention_mask)
-        energy_terms.append(fallback_energy)
-        per_sample_energy = torch.stack(energy_terms, dim=0).sum(dim=0)
+        if energy_terms:
+            per_sample_energy = torch.stack(energy_terms, dim=0).sum(dim=0)
+        else:
+            per_sample_energy = energy_utils.sequence_energy(hidden, attention_mask)
         return (logits, per_sample_energy, hidden)
 
     @staticmethod

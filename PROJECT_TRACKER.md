@@ -66,6 +66,7 @@
   2. 摩擦层稳定性：`fif_mvp/models/friction_layer.py` 动态 μ + 归一化拉普拉斯 + η 衰减 + 平滑。
   3. 能量正则与指标：`fif_mvp/train/loop.py`, `scripts/sst2_noisy_*.sh`, `README.md`.
   4. 文档：`docs/experiment_design.md`, 更新 `WORK_BOARD.md`.
+  5. 训练性能优化：摩擦层窗口邻接共享批量化（`fif_mvp/models/friction_layer.py`, `fif_mvp/utils/sparse.py`, `fif_mvp/train/energy.py`）并移除 Hybrid 中冗余的 fallback 能量计算（`fif_mvp/models/hybrid_model.py`），使 v1.0.0-B 运行不再受 6s/step 的 Python 循环瓶颈限制。
 
 ## 版本 1.0.1
 - **版本号**：1.0.1

@@ -7,13 +7,13 @@ where Python-side list building dominates time.
 
 from __future__ import annotations
 
-from typing import Iterable, List, Set, Tuple, Dict, Optional
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import torch
 from torch.nn import functional as F
 
-
 _WINDOW_CACHE: Dict[Tuple[int, int], torch.Tensor] = {}
+_WINDOW_CACHE_DEVICE: Dict[Tuple[int, int, str], torch.Tensor] = {}
 
 
 def build_window_edges(
@@ -26,7 +26,9 @@ def build_window_edges(
     """
 
     if length <= 1 or radius <= 0:
-        return torch.zeros((0, 2), dtype=torch.long, device=device or torch.device("cpu"))
+        return torch.zeros(
+            (0, 2), dtype=torch.long, device=device or torch.device("cpu")
+        )
     key = (length, radius)
     cached = _WINDOW_CACHE.get(key)
     if cached is None:
@@ -44,7 +46,12 @@ def build_window_edges(
         _WINDOW_CACHE[key] = cached
     if device is None or str(device) == "cpu":
         return cached
-    return cached.to(device, non_blocking=(device.type == "cuda"))
+    key_dev = (length, radius, str(device))
+    dev_cached = _WINDOW_CACHE_DEVICE.get(key_dev)
+    if dev_cached is None or dev_cached.device != device:
+        dev_cached = cached.to(device, non_blocking=(device.type == "cuda"))
+        _WINDOW_CACHE_DEVICE[key_dev] = dev_cached
+    return dev_cached
 
 
 def build_knn_edges(hidden: torch.Tensor, mask: torch.Tensor, k: int) -> torch.Tensor:

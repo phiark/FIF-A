@@ -22,6 +22,23 @@ def edge_energy(
     return energy
 
 
+def edge_energy_batch(
+    mu: torch.Tensor, hidden: torch.Tensor, edges: torch.Tensor
+) -> torch.Tensor:
+    """Vectorized energy for a batch sharing the same edge index."""
+
+    if edges.numel() == 0:
+        return hidden.new_zeros(hidden.size(0))
+    idx_i = edges[:, 0]
+    idx_j = edges[:, 1]
+    h_i = hidden[:, idx_i, :]
+    h_j = hidden[:, idx_j, :]
+    diff = h_i - h_j
+    squared = diff.pow(2).sum(dim=-1)
+    energy = 0.5 * (mu.squeeze(-1) * squared).sum(dim=-1)
+    return energy
+
+
 def sequence_energy(
     hidden: torch.Tensor, mask: torch.Tensor, radius: int = 1
 ) -> torch.Tensor:
