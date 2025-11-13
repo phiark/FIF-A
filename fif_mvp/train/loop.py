@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 import torch
-from contextlib import nullcontext
 from torch import nn
-import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -48,7 +47,9 @@ class Trainer:
         self.step_times: List[float] = []
         # New torch.amp API (only for CUDA)
         self.scaler = (
-            torch.amp.GradScaler("cuda") if (self.config.use_amp and device.type == "cuda") else None
+            torch.amp.GradScaler("cuda")
+            if (self.config.use_amp and device.type == "cuda")
+            else None
         )
         self.rank = getattr(config, "rank", 0)
         self.world_size = getattr(config, "world_size", 1)
@@ -174,7 +175,9 @@ class Trainer:
                 sampler.set_epoch(epoch)
             except Exception:
                 pass
-        progress = tqdm(loader, desc=f"epoch {epoch}", leave=False, disable=(self.rank != 0))
+        progress = tqdm(
+            loader, desc=f"epoch {epoch}", leave=False, disable=(self.rank != 0)
+        )
         for batch in progress:
             if global_step >= total_steps:
                 break
@@ -193,17 +196,17 @@ class Trainer:
                     batch.get("noise_level_ids"),
                 )
                 if not isinstance(outputs, ModelOutput):
-                    logits, per_sample_energy, batch_energy, hidden_states = outputs
+                    logits, per_sample_energy, hidden_states = outputs
                     outputs = ModelOutput(
                         logits=logits,
                         per_sample_energy=per_sample_energy,
-                        batch_energy=batch_energy,
                         hidden_states=hidden_states,
                     )
                 ce_loss = self.criterion(outputs.logits, batch["labels"])
             loss = ce_loss
             if self.config.energy_reg_weight > 0.0:
-                reg = torch.log1p(outputs.batch_energy.clamp_min(0.0))
+                batch_energy = outputs.per_sample_energy.mean()
+                reg = torch.log1p(batch_energy.clamp_min(0.0))
                 loss = loss + self.config.energy_reg_weight * reg
             if not torch.isfinite(loss):
                 raise RuntimeError("Loss became non-finite.")
@@ -246,15 +249,15 @@ class Trainer:
         avg_loss = float(np.mean(losses)) if losses else 0.0
         if self.rank == 0:
             self.logger.info(
-            "epoch=%s step=%s train_loss=%.4f acc=%.4f f1=%.4f energy=%.4f elog=%.4f",
-            epoch,
-            global_step,
-            avg_loss,
-            acc,
-            macro_f1,
-            energy_mean,
-            energy_log_mean,
-        )
+                "epoch=%s step=%s train_loss=%.4f acc=%.4f f1=%.4f energy=%.4f elog=%.4f",
+                epoch,
+                global_step,
+                avg_loss,
+                acc,
+                macro_f1,
+                energy_mean,
+                energy_log_mean,
+            )
 
         return {
             "loss": avg_loss,
@@ -296,7 +299,9 @@ class Trainer:
                 if self.device.type == "cuda":
                     amp_cm = torch.amp.autocast("cuda", enabled=bool(self.scaler))
                 elif self.device.type == "mps" and hasattr(torch, "autocast"):
-                    amp_cm = torch.autocast(device_type="mps", enabled=self.config.use_amp)
+                    amp_cm = torch.autocast(
+                        device_type="mps", enabled=self.config.use_amp
+                    )
                 else:
                     amp_cm = nullcontext()
                 with amp_cm:
@@ -306,11 +311,10 @@ class Trainer:
                         batch.get("noise_level_ids"),
                     )
                 if not isinstance(outputs, ModelOutput):
-                    logits, per_sample_energy, batch_energy, hidden_states = outputs
+                    logits, per_sample_energy, hidden_states = outputs
                     outputs = ModelOutput(
                         logits=logits,
                         per_sample_energy=per_sample_energy,
-                        batch_energy=batch_energy,
                         hidden_states=hidden_states,
                     )
                 loss = self.criterion(outputs.logits, batch["labels"])
@@ -372,15 +376,15 @@ class Trainer:
         tag = f"{split} epoch={epoch}" if epoch else split
         if self.rank == 0:
             self.logger.info(
-            "%s loss=%.4f acc=%.4f f1=%.4f ece=%.4f energy=%.4f elog=%.4f",
-            tag,
-            metrics["loss"],
-            metrics["acc"],
-            metrics["macro_f1"],
-            metrics["ece"],
-            metrics["energy_mean"],
-            metrics["energy_log_mean"],
-        )
+                "%s loss=%.4f acc=%.4f f1=%.4f ece=%.4f energy=%.4f elog=%.4f",
+                tag,
+                metrics["loss"],
+                metrics["acc"],
+                metrics["macro_f1"],
+                metrics["ece"],
+                metrics["energy_mean"],
+                metrics["energy_log_mean"],
+            )
         return metrics
 
     def _write_test_summary(self, metrics: Dict[str, float]) -> None:

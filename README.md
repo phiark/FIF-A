@@ -34,6 +34,13 @@ Each script stores outputs under `./result/` in timestamped folders.
 
 `run.sh` executes all four experiments sequentially and prints a one-line success message containing the absolute `result/` path when everything completes without error. The CLI auto-detects the best accelerator in priority order (CUDA/NVIDIA or AMD ROCm, Apple MPS, then CPU) and emits a large warning if it must fall back to CPU because a GPU backend is unavailable or fails to initialize.
 
+### Multi-GPU (DDP) runs
+
+- Pass `--ddp` to `python -m fif_mvp.cli.run_experiment ...` to launch single-node DistributedDataParallel jobs without manually calling `torchrun`. Use `--nproc_per_node <num_gpus>` to override the default of “all visible CUDA devices”.
+- Existing helper scripts now auto-detect `torch.cuda.device_count()` and append `--ddp --nproc_per_node=<count>` whenever more than one GPU is visible, so `./run.sh` scales out-of-the-box on multi-GPU servers.
+- If you prefer to manage processes yourself, `torchrun --nproc_per_node=2 python -m fif_mvp.cli.run_experiment ...` still works; the CLI recognizes the `LOCAL_RANK/RANK/WORLD_SIZE` environment variables and skips the built-in launcher.
+- DataParallel remains available for legacy workflows, but DDP eliminates the scalar gather warning (`Was asked to gather along dimension 0...`) and keeps computation on the GPUs.
+
 Key CLI knobs:
 
 - `--train_noise_levels clean,low,med,high` controls which noise intensities are duplicated in the training split (default mixes全部四档)；

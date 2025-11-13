@@ -33,6 +33,7 @@
 - 产物：`metrics_epoch.csv`, `energy_epoch.csv`（含 log）、`confusion_matrix.csv`, `energy_error_correlation.json`, per-sample 能量可选导出。
 
 ## 6. 验证步骤
+0. 多 GPU 节点统一通过 CLI `--ddp --nproc_per_node=<gpu_count>`（或脚本自动侦测）启用单机 DDP，禁止 DataParallel 造成的标量 gather 同步瓶颈。
 1. 使用 `scripts/sst2_noisy_baseline.sh` & `sst2_noisy_hybrid.sh` 重新跑 v1.0.0。
 2. 核对 `PROJECT_TRACKER.md` 记录的版本字段已更新。
 3. 在论文草稿中记录新的能量/准确率对照图（计划使用 `docs/figures/` 输出）。 

@@ -52,9 +52,32 @@
   - **摩擦层**：循环内重算 `μ = clamp(softplus(MLP(...)))`，构建归一化拉普拉斯 `D^{-1/2} L D^{-1/2}`，每步步长 `η_t = η·decay^t` 并附加 1D 平滑。
   - **训练损失**：`L = CE + λ_energy ⋅ log(1 + E_batch)`，`λ_energy` 由 CLI `--energy_reg_weight` 控制。
   - **数据/模型**：`train_noise_levels` 控制训练复制的噪声强度；`SequenceCollator` 输出 `noise_level_ids`，编码器通过噪声嵌入调节特征。
-- **实验记录**：本版本为准备态，等待重新运行 `scripts/sst2_noisy_{baseline,hybrid}.sh` 生成新版曲线；实验矩阵详见 `docs/experiment_design.md`。
+- **实验记录**（SNLI，seed=42；详见 `docs/reports/v1_0_0_snli.md`，原始日志位于 `result/1_0_0_snli/`）：
+
+| Model | acc | macro_f1 | loss | ece | energy_mean | energy_log_mean | pearson_r(energy,error) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Baseline | 0.7834 | 0.7824 | 0.5347 | 0.0186 | 456.56 | 5.90 | -0.11 |
+| Hybrid | 0.6877 | 0.6868 | 0.7188 | 0.0128 | 1441.28 | 7.20 | -0.01 |
+
+  - Hybrid 相比基线在 acc/macro_f1 上约 -9.6pt，loss +0.18，能量均值高出 3.2×，能量-错误相关性趋近 0，暂未实现“能量≈风险”目标。
+  - 本次运行采用 `energy_reg_weight = 0`（尚未启用 λ=1e-4/5e-4），后续需在相同设置下补跑 v1.0.0-B/C 以验证能量正则的收益。
 - **修改与改进点**：
   1. 数据与模型条件化：`fif_mvp/data/sst2.py`, `fif_mvp/data/__init__.py`, `fif_mvp/models/transformer_baseline.py`, `fif_mvp/models/hybrid_model.py`.
   2. 摩擦层稳定性：`fif_mvp/models/friction_layer.py` 动态 μ + 归一化拉普拉斯 + η 衰减 + 平滑。
   3. 能量正则与指标：`fif_mvp/train/loop.py`, `scripts/sst2_noisy_*.sh`, `README.md`.
   4. 文档：`docs/experiment_design.md`, 更新 `WORK_BOARD.md`.
+
+## 版本 1.0.1
+- **版本号**：1.0.1
+- **更新时间**：2025-11-12
+- **迭代来源**：基于 1.0.0 继续完善训练基础设施。
+- **版本目标**：
+  - 消除多 GPU DataParallel 的标量 gather 警告与 CPU 同步开销，让能量正则仍保持梯度。
+  - 内置单机 DDP launcher，并让脚本自动切换到 DDP，避免手动 `torchrun` 的易错流程。
+- **公式与管线**：沿用 1.0.0 的建模与损失，仅在训练管线中改写能量正则（改为使用张量平均）并新增 DDP 启动逻辑。
+- **实验记录**：尚未重新跑完矩阵；预计在 `scripts/sst2_noisy_*.sh` 自动 DDP 验证后补全。
+- **修改与改进点**：
+  1. `fif_mvp/models/*`, `fif_mvp/train/loop.py`：移除 `batch_energy` 标量输出，改为从 `per_sample_energy` 聚合，彻底消除 DataParallel 警告。
+  2. `fif_mvp/cli/run_experiment.py`：新增 `--ddp/--nproc_per_node` 单机 mp.spawn launcher，并修正 DDP 场景下的目录创建。
+  3. `scripts/*.sh`：检测 `torch.cuda.device_count()` 自动附加 `--ddp`。
+  4. 文档同步：`README.md`, `docs/experiment_design.md`, 更新 `WORK_BOARD.md` 以记录任务闭环。

@@ -55,7 +55,7 @@ class HybridClassifier(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         noise_level_ids: Optional[torch.Tensor] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch_size, seq_len = input_ids.shape
         positions = (
             torch.arange(seq_len, device=input_ids.device)
@@ -82,8 +82,7 @@ class HybridClassifier(nn.Module):
         fallback_energy = energy_utils.sequence_energy(hidden, attention_mask)
         energy_terms.append(fallback_energy)
         per_sample_energy = torch.stack(energy_terms, dim=0).sum(dim=0)
-        batch_energy = per_sample_energy.mean()
-        return (logits, per_sample_energy, batch_energy, hidden)
+        return (logits, per_sample_energy, hidden)
 
     @staticmethod
     def _pool(hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:

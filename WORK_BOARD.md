@@ -28,5 +28,7 @@
 | T-003 | 在训练损失中加入能量正则（例如高能量样本惩罚或校准损失），并记录能量-错误曲线 | Codex | Done | 1.0.0 | `fif_mvp/train/loop.py`, `scripts/sst2_noisy_*.sh` |
 | T-004 | 统一能量量纲并引入对照指标（z-score 或对数能量），便于与基准线比较 | Codex | Done | 1.0.0 | `metrics_epoch.csv`/`energy_epoch.csv` 字段、`test_summary.json` |
 | T-005 | 编写实验设计文档 & 论文草稿提纲，明确需要的图表/表格 | Codex | Done | 1.0.0 | `docs/experiment_design.md` |
+| T-006 | 修复多 GPU DataParallel 警告并默认使用单机 DDP（CLI `--ddp` + 自动脚本） | Codex | Done | 1.0.1 | `fif_mvp/cli/run_experiment.py`, `scripts/*.sh`, `README.md` |
+| T-007 | SNLI Hybrid v1.0.0-B：启用 `λ=1e-4` 能量正则并将摩擦迭代深度对齐 (K=3)，记录能量轨迹 | Codex | In Progress | 1.0.0 | `scripts/snli_hybrid.sh`, `docs/reports/v1_0_0_snli.md` |
 
 > 注：负责人暂未指派；当任务进入 `In Progress` 时需补充姓名与预计完成时间。
