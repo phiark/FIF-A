@@ -42,19 +42,29 @@ def edge_energy_batch(
 def sequence_energy(
     hidden: torch.Tensor, mask: torch.Tensor, radius: int = 1
 ) -> torch.Tensor:
-    """Window-based energy usable for any encoder."""
+    """Window-based energy usable for any encoder (vectorized by length buckets).
 
+    Groups sequences by effective length and computes batched edge energies
+    using a shared window graph per unique length.
+    """
+
+    device = hidden.device
     batch_size = hidden.size(0)
-    energies = []
-    for b in range(batch_size):
-        length = int(mask[b].sum().item())
-        if length <= 1:
-            energies.append(hidden.new_tensor(0.0))
+    lengths = mask.sum(dim=1).to(torch.int64)
+    out = hidden.new_zeros(batch_size)
+    # Map: length -> indices in batch
+    unique_lengths = torch.unique(lengths).tolist()
+    for L in unique_lengths:
+        L_int = int(L)
+        idx = (lengths == L_int).nonzero(as_tuple=True)[0]
+        if L_int <= 1 or idx.numel() == 0:
             continue
-        edges = sparse_utils.build_window_edges(length, radius, device=hidden.device)
-        mu = hidden.new_ones((edges.size(0), 1))
-        energies.append(edge_energy(mu, hidden[b, :length], edges))
-    return torch.stack(energies, dim=0)
+        edges = sparse_utils.build_window_edges(L_int, radius, device=device)
+        mu = hidden.new_ones((idx.numel(), edges.size(0), 1))
+        seq_hidden = hidden.index_select(0, idx)[:, :L_int, :]
+        out_vals = edge_energy_batch(mu, seq_hidden, edges)
+        out.index_copy_(0, idx, out_vals)
+    return out
 
 
 def per_token_energy(

@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence
 import os
-import torch
-
 import torch
 from torch.utils.data import DataLoader
 

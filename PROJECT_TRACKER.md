@@ -76,9 +76,36 @@
   - 消除多 GPU DataParallel 的标量 gather 警告与 CPU 同步开销，让能量正则仍保持梯度。
   - 内置单机 DDP launcher，并让脚本自动切换到 DDP，避免手动 `torchrun` 的易错流程。
 - **公式与管线**：沿用 1.0.0 的建模与损失，仅在训练管线中改写能量正则（改为使用张量平均）并新增 DDP 启动逻辑。
-- **实验记录**：尚未重新跑完矩阵；预计在 `scripts/sst2_noisy_*.sh` 自动 DDP 验证后补全。
+- **实验记录**（SNLI，seed=42；详见 `docs/reports/v1_0_1_snli.md`）：
+
+| Model | energy_reg_weight | acc | macro_f1 | loss | ece | energy_mean | energy_log_mean | pearson_r(E, err) | 备注 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Baseline | 0.0 | 0.7767 | 0.7749 | 0.5521 | 0.0288 | 431.57 | 5.81 | -0.097 | DDP 训练 44 分钟，性能接近 v1.0.0 |
+| Hybrid | 1e-4 | 0.6967 | 0.6951 | 0.6978 | 0.0166 | 0.070 | 0.068 | +0.057 | 能量被正则压至近 0，仍落后基线 8pt |
+
+  - 新的 per-sample 能量聚合消除了 DataParallel 警告，但 Hybrid 的能量在 λ=1e-4 下崩塌，需要重新调节 λ/K/η 以恢复能量-错误关联。
 - **修改与改进点**：
   1. `fif_mvp/models/*`, `fif_mvp/train/loop.py`：移除 `batch_energy` 标量输出，改为从 `per_sample_energy` 聚合，彻底消除 DataParallel 警告。
   2. `fif_mvp/cli/run_experiment.py`：新增 `--ddp/--nproc_per_node` 单机 mp.spawn launcher，并修正 DDP 场景下的目录创建。
   3. `scripts/*.sh`：检测 `torch.cuda.device_count()` 自动附加 `--ddp`。
   4. 文档同步：`README.md`, `docs/experiment_design.md`, 更新 `WORK_BOARD.md` 以记录任务闭环。
+  5. 能量正则可调化：新增 `--energy_reg_scope/--energy_reg_mode`、记录 `energy_std`/`energy_p90`（`fif_mvp/cli/run_experiment.py`, `fif_mvp/train/loop.py`, `fif_mvp/models/hybrid_model.py`, `docs/reports/*`），为 v1.0.0-B 之后的 λ 扫描提供工具。
+
+## 版本 1.0.2
+- **版本号**：1.0.2
+- **更新时间**：2025-11-14
+- **迭代来源**：针对稳健性与可复现性的小版本修复与清理。
+- **版本目标**：
+  - 统一模型输出形态，简化训练循环逻辑；
+  - 修复 DDP 环境下的 GPU→CPU 回退策略，避免多进程分歧；
+  - 将 Baseline 的窗口能量计算向量化，降低 Python 循环开销；
+  - 完整暴露 Friction 超参到 CLI，便于实验扫描；
+  - 明确并默认启用确定性训练；清理小冗余。
+- **公式与管线**：沿用 1.0.1，未更改建模与损失公式；仅优化训练/CLI 基础设施与能量实现。
+- **修改与改进点**：
+  1. 输出统一：`TransformerClassifier`/`HybridClassifier` 均返回 `ModelOutput`（`fif_mvp/models/*`），`Trainer` 仅在 DataParallel tuple 情况做解包。
+  2. DDP 回退：在 DDP 下禁用自动 CPU 回退（`fif_mvp/cli/run_experiment.py: run_with_device`）。
+  3. 能量向量化：`train/energy.sequence_energy` 按长度分桶，使用一次 window 图 + 批量能量（`edge_energy_batch`）。
+  4. CLI 扩展：新增 `--friction.{eta_decay,mu_max,smooth_lambda,normalize_laplacian/no_normalize_laplacian,recompute_mu/no_recompute_mu}`（`fif_mvp/cli/run_experiment.py`）。
+  5. 确定性：默认 `--deterministic` 开启，允许 `--no_deterministic` 显式关闭；移除相互矛盾的二次设置（`README.md`/`run_experiment.py`）。
+  6. 清理：移除重复 import（`data/__init__.py`）、简化噪声字符集（`data/noise.py`）、去除未使用依赖 `torchvision`（`requirements.txt`）。

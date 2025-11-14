@@ -95,6 +95,8 @@ class Trainer:
                         "ece": train_metrics["ece"],
                         "energy_mean": train_metrics["energy"],
                         "energy_log_mean": train_metrics["energy_log"],
+                        "energy_std": train_metrics["energy_std"],
+                        "energy_p90": train_metrics["energy_p90"],
                     }
                 )
                 energy_rows.append(
@@ -103,6 +105,8 @@ class Trainer:
                         "split": "train",
                         "energy_mean": train_metrics["energy"],
                         "energy_log_mean": train_metrics["energy_log"],
+                        "energy_std": train_metrics["energy_std"],
+                        "energy_p90": train_metrics["energy_p90"],
                     }
                 )
 
@@ -122,6 +126,8 @@ class Trainer:
                         "split": "validation",
                         "energy_mean": val_metrics["energy_mean"],
                         "energy_log_mean": val_metrics["energy_log_mean"],
+                        "energy_std": val_metrics["energy_std"],
+                        "energy_p90": val_metrics["energy_p90"],
                     }
                 )
 
@@ -141,6 +147,8 @@ class Trainer:
                 "split": "test",
                 "energy_mean": test_metrics["energy_mean"],
                 "energy_log_mean": test_metrics["energy_log_mean"],
+                "energy_std": test_metrics["energy_std"],
+                "energy_p90": test_metrics["energy_p90"],
             }
         )
 
@@ -196,18 +204,28 @@ class Trainer:
                     batch.get("noise_level_ids"),
                 )
                 if not isinstance(outputs, ModelOutput):
-                    logits, per_sample_energy, hidden_states = outputs
+                    if len(outputs) == 4:
+                        logits, per_sample_energy, hidden_states, energy_components = (
+                            outputs
+                        )
+                        if energy_components.numel() == 0:
+                            energy_components = None
+                    else:
+                        logits, per_sample_energy, hidden_states = outputs
+                        energy_components = None
                     outputs = ModelOutput(
                         logits=logits,
                         per_sample_energy=per_sample_energy,
                         hidden_states=hidden_states,
+                        energy_components=energy_components,
                     )
                 ce_loss = self.criterion(outputs.logits, batch["labels"])
             loss = ce_loss
             if self.config.energy_reg_weight > 0.0:
-                batch_energy = outputs.per_sample_energy.mean()
-                reg = torch.log1p(batch_energy.clamp_min(0.0))
-                loss = loss + self.config.energy_reg_weight * reg
+                energy_tensor = self._select_energy_for_regularization(outputs)
+                if energy_tensor.numel() > 0:
+                    reg = self._compute_energy_regularizer(energy_tensor)
+                    loss = loss + self.config.energy_reg_weight * reg
             if not torch.isfinite(loss):
                 raise RuntimeError("Loss became non-finite.")
             if self.scaler is not None:
@@ -242,9 +260,13 @@ class Trainer:
         labels_np = np.array(labels) if labels else np.zeros(1)
         acc = metrics_lib.compute_accuracy(preds_np, labels_np) if preds else 0.0
         macro_f1 = metrics_lib.compute_macro_f1(preds_np, labels_np) if preds else 0.0
-        energy_array = np.array(energy_terms) if energy_terms else np.zeros(1)
-        energy_mean = float(np.mean(energy_array))
-        energy_log_mean = float(np.mean(np.log1p(np.maximum(energy_array, 0.0))))
+        energy_array = np.array(energy_terms, dtype=np.float32)
+        energy_mean = float(np.mean(energy_array)) if energy_array.size else 0.0
+        energy_log_mean = (
+            float(np.mean(np.log1p(np.maximum(energy_array, 0.0))))
+            if energy_array.size
+            else 0.0
+        )
         ece = 0.0  # training split uses argmax only
         avg_loss = float(np.mean(losses)) if losses else 0.0
         if self.rank == 0:
@@ -266,8 +288,31 @@ class Trainer:
             "ece": ece,
             "energy": energy_mean,
             "energy_log": energy_log_mean,
+            "energy_std": float(np.std(energy_array)) if energy_array.size else 0.0,
+            "energy_p90": float(np.percentile(energy_array, 90))
+            if energy_array.size
+            else 0.0,
             "global_step": global_step,
         }
+
+    def _select_energy_for_regularization(self, outputs: ModelOutput) -> torch.Tensor:
+        energy = outputs.per_sample_energy
+        if (
+            self.config.energy_reg_scope == "last"
+            and outputs.energy_components is not None
+            and outputs.energy_components.numel() > 0
+        ):
+            energy = outputs.energy_components[-1]
+        return energy
+
+    def _compute_energy_regularizer(self, energy_tensor: torch.Tensor) -> torch.Tensor:
+        eps = 1e-12
+        clamped = energy_tensor.clamp_min(0.0)
+        if self.config.energy_reg_mode == "absolute":
+            return torch.log1p(clamped).mean()
+        log_vals = torch.log1p(clamped + eps)
+        centered = log_vals - log_vals.mean()
+        return centered.pow(2).mean()
 
     def evaluate(
         self,
@@ -286,6 +331,8 @@ class Trainer:
                 "ece": 0.0,
                 "energy_mean": 0.0,
                 "energy_log_mean": 0.0,
+                "energy_std": 0.0,
+                "energy_p90": 0.0,
             }
         self.model.eval()
         all_logits: List[torch.Tensor] = []
@@ -311,11 +358,20 @@ class Trainer:
                         batch.get("noise_level_ids"),
                     )
                 if not isinstance(outputs, ModelOutput):
-                    logits, per_sample_energy, hidden_states = outputs
+                    if len(outputs) == 4:
+                        logits, per_sample_energy, hidden_states, energy_components = (
+                            outputs
+                        )
+                        if energy_components.numel() == 0:
+                            energy_components = None
+                    else:
+                        logits, per_sample_energy, hidden_states = outputs
+                        energy_components = None
                     outputs = ModelOutput(
                         logits=logits,
                         per_sample_energy=per_sample_energy,
                         hidden_states=hidden_states,
+                        energy_components=energy_components,
                     )
                 loss = self.criterion(outputs.logits, batch["labels"])
                 losses.append(loss.item())
@@ -332,6 +388,8 @@ class Trainer:
         losses_np = np.array(losses) if losses else np.zeros(1)
         energies_np = energies.numpy()
         energy_log_mean = float(np.mean(np.log1p(np.maximum(energies_np, 0.0))))
+        energy_std = float(np.std(energies_np)) if energies_np.size else 0.0
+        energy_p90 = float(np.percentile(energies_np, 90)) if energies_np.size else 0.0
         metrics = {
             "loss": float(losses_np.mean()) if losses_np.size else 0.0,
             "acc": metrics_lib.compute_accuracy(preds, labels_np),
@@ -339,6 +397,8 @@ class Trainer:
             "ece": metrics_lib.expected_calibration_error(probs, labels_np),
             "energy_mean": float(energies.mean().item()),
             "energy_log_mean": energy_log_mean,
+            "energy_std": energy_std,
+            "energy_p90": energy_p90,
         }
 
         if record_confusion:

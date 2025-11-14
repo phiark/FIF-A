@@ -17,6 +17,7 @@ class ModelOutput:
     logits: torch.Tensor
     per_sample_energy: torch.Tensor
     hidden_states: torch.Tensor
+    energy_components: torch.Tensor | None = None
 
 
 class DataParallelFriendly(torch.nn.Module):
@@ -33,7 +34,12 @@ class DataParallelFriendly(torch.nn.Module):
     def forward(self, *args, **kwargs):  # type: ignore[override]
         out = self.module(*args, **kwargs)
         if isinstance(out, ModelOutput):
-            return (out.logits, out.per_sample_energy, out.hidden_states)
+            components = (
+                out.energy_components
+                if out.energy_components is not None
+                else out.logits.new_empty((0,))
+            )
+            return (out.logits, out.per_sample_energy, out.hidden_states, components)
         return out
 
 

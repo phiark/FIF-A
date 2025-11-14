@@ -8,6 +8,7 @@ import torch
 from torch import nn
 
 from fif_mvp.train import energy as energy_utils
+from . import ModelOutput
 
 
 class TransformerBlock(nn.Module):
@@ -86,7 +87,7 @@ class TransformerClassifier(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         noise_level_ids: Optional[torch.Tensor] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> ModelOutput:
         batch_size, seq_len = input_ids.shape
         positions = (
             torch.arange(seq_len, device=input_ids.device)
@@ -104,7 +105,12 @@ class TransformerClassifier(nn.Module):
         pooled = self._pool(hidden, attention_mask)
         logits = self.classifier(self.norm(pooled))
         per_sample_energy = energy_utils.sequence_energy(hidden, attention_mask)
-        return (logits, per_sample_energy, hidden)
+        return ModelOutput(
+            logits=logits,
+            per_sample_energy=per_sample_energy,
+            hidden_states=hidden,
+            energy_components=None,
+        )
 
     @staticmethod
     def _pool(hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:

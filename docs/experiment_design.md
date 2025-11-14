@@ -18,8 +18,11 @@
   - 每次迭代重算 μ，并做 `μ = clamp(softplus(MLP))`。
   - 采用归一化拉普拉斯 `D^{-1/2} L D^{-1/2}`，并在每步后执行 1D 平滑。
   - 步长 `η_t = η ⋅ decay^t`，默认 `decay=0.5`。
-- **能量正则**：训练损失 `L = CE + λ ⋅ log(1 + E_batch)`，默认 λ 由 CLI 参数控制。
-- **能量指标**：除 `energy_mean` 外记录 `energy_log_mean`，写入 `metrics_epoch.csv/test_summary.json`。
+- **能量正则**：训练损失 `L = CE + λ ⋅ \phi(E_batch)`，其中 `φ` 可选：
+  - `--energy_reg_scope {all,last}` 决定取全部摩擦层能量（默认）或仅取最后一层能量；
+  - `--energy_reg_mode {absolute,normalized}` 选择直接惩罚 `log1p(E)` 还是惩罚 Batch 内 `log1p(E)` 相对均值的平方，避免能量塌缩；
+  - λ 依旧通过 CLI 控制。
+- **能量指标**：记录 `energy_mean/log_mean/std/p90`，写入 `metrics_epoch.csv`、`energy_epoch.csv` 以及 `test_summary.json`（均值/对数均值）。
 
 ## 4. 实验矩阵
 | 版本 | 模型 | 训练噪声 | 评估噪声 | 能量权重 λ | 备注 |

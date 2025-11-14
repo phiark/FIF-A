@@ -29,6 +29,18 @@
 | T-004 | 统一能量量纲并引入对照指标（z-score 或对数能量），便于与基准线比较 | Codex | Done | 1.0.0 | `metrics_epoch.csv`/`energy_epoch.csv` 字段、`test_summary.json` |
 | T-005 | 编写实验设计文档 & 论文草稿提纲，明确需要的图表/表格 | Codex | Done | 1.0.0 | `docs/experiment_design.md` |
 | T-006 | 修复多 GPU DataParallel 警告并默认使用单机 DDP（CLI `--ddp` + 自动脚本） | Codex | Done | 1.0.1 | `fif_mvp/cli/run_experiment.py`, `scripts/*.sh`, `README.md` |
-| T-007 | SNLI Hybrid v1.0.0-B：启用 `λ=1e-4` 能量正则并将摩擦迭代深度对齐 (K=3)，记录能量轨迹 | Codex | In Progress | 1.0.0 | `scripts/snli_hybrid.sh`, `docs/reports/v1_0_0_snli.md`, `fif_mvp/models/friction_layer.py` （已完成批量化与能量回落优化，等待新一轮跑数） |
+| T-007 | SNLI Hybrid v1.0.0-B：启用 `λ=1e-4` 能量正则并将摩擦迭代深度对齐 (K=3)，记录能量轨迹 | Codex | In Progress | 1.0.0 | `scripts/snli_hybrid.sh`, `docs/reports/v1_0_0_snli.md`, `fif_mvp/models/friction_layer.py`（已完成批量化与能量回落优化，等待新一轮跑数） |
+| T-008 | v1.0.1 SNLI 实验分析：验证 DDP/能量聚合改动并出具报告 | Codex | Done | 1.0.1 | `docs/reports/v1_0_1_snli.md`, `PROJECT_TRACKER.md` |
+| T-009 | 能量正则可调：支持 scope/mode 选择并输出 `energy_std/p90` | Codex | Done | 1.0.1 | `fif_mvp/cli/run_experiment.py`, `fif_mvp/train/loop.py`, `fif_mvp/models/hybrid_model.py`, `README.md`, `docs/experiment_design.md` |
+
+## v1.0.2 活动任务
+| ID | 描述 | 负责人 | 状态 | 目标版本 | 关联输出/备注 |
+| --- | --- | --- | --- | --- | --- |
+| T-010 | 统一模型输出为 `ModelOutput` 并精简训练端判型 | Codex | Done | 1.0.2 | `fif_mvp/models/*`, `fif_mvp/train/loop.py` |
+| T-011 | 修复 DDP 下 GPU→CPU 回退策略（禁用自动回退） | Codex | Done | 1.0.2 | `fif_mvp/cli/run_experiment.py` |
+| T-012 | Baseline 窗口能量向量化，消除逐样本循环 | Codex | Done | 1.0.2 | `fif_mvp/train/energy.py` |
+| T-013 | CLI 暴露完整 Friction 超参开关 | Codex | Done | 1.0.2 | `fif_mvp/cli/run_experiment.py`, `README.md` |
+| T-014 | 确定性默认开启，提供 `--no_deterministic` 关闭 | Codex | Done | 1.0.2 | `fif_mvp/cli/run_experiment.py`, `README.md` |
+| T-015 | 小清理：重复 import/噪声字符集/去除未用依赖 | Codex | Done | 1.0.2 | `fif_mvp/data/__init__.py`, `fif_mvp/data/noise.py`, `requirements.txt` |
 
 > 注：负责人暂未指派；当任务进入 `In Progress` 时需补充姓名与预计完成时间。

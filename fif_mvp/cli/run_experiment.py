@@ -60,6 +60,44 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--friction.k", dest="friction_k", type=int, default=8)
     parser.add_argument(
+        "--friction.eta_decay", dest="friction_eta_decay", type=float, default=0.5
+    )
+    parser.add_argument(
+        "--friction.mu_max", dest="friction_mu_max", type=float, default=5.0
+    )
+    parser.add_argument(
+        "--friction.smooth_lambda",
+        dest="friction_smooth_lambda",
+        type=float,
+        default=0.05,
+    )
+    parser.add_argument(
+        "--friction.normalize_laplacian",
+        dest="friction_normalize_laplacian",
+        action="store_true",
+        default=True,
+        help="Use normalized Laplacian D^{-1/2} L D^{-1/2} (default: on).",
+    )
+    parser.add_argument(
+        "--friction.no_normalize_laplacian",
+        dest="friction_normalize_laplacian",
+        action="store_false",
+        help="Disable normalized Laplacian (use unnormalized).",
+    )
+    parser.add_argument(
+        "--friction.recompute_mu",
+        dest="friction_recompute_mu",
+        action="store_true",
+        default=True,
+        help="Recompute edge weights mu at each inner step (default: on).",
+    )
+    parser.add_argument(
+        "--friction.no_recompute_mu",
+        dest="friction_recompute_mu",
+        action="store_false",
+        help="Use fixed mu estimated once per forward.",
+    )
+    parser.add_argument(
         "--noise_intensity", choices=["low", "med", "high"], default=None
     )
     parser.add_argument(
@@ -74,6 +112,18 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help="Weight for log-energy regularization added to the training loss.",
+    )
+    parser.add_argument(
+        "--energy_reg_scope",
+        choices=["all", "last"],
+        default="all",
+        help="Use energies from all friction layers or only the last one when applying regularization.",
+    )
+    parser.add_argument(
+        "--energy_reg_mode",
+        choices=["absolute", "normalized"],
+        default="absolute",
+        help="absolute: penalize log1p(E); normalized: penalize squared deviation of log1p(E) from the batch mean.",
     )
     parser.add_argument(
         "--save_dir", type=str, required=True, help="Must reside under ./result"
@@ -95,10 +145,19 @@ def parse_args() -> argparse.Namespace:
         default=-1,
         help="DataLoader workers (-1 = auto for CUDA, 0 = main thread).",
     )
+    # Determinism defaults to ON for reproducibility; allow explicit opt-out
     parser.add_argument(
         "--deterministic",
+        dest="deterministic",
         action="store_true",
-        help="Enable deterministic algorithms (slower). By default disabled for speed.",
+        default=True,
+        help="Enable deterministic algorithms (default: on).",
+    )
+    parser.add_argument(
+        "--no_deterministic",
+        dest="deterministic",
+        action="store_false",
+        help="Disable deterministic algorithms (faster, less reproducible).",
     )
     parser.add_argument(
         "--ddp",
@@ -221,6 +280,11 @@ def _run_cli(args: argparse.Namespace) -> None:
         neighbor=args.friction_neighbor,
         radius=args.friction_radius,
         k=args.friction_k,
+        eta_decay=getattr(args, "friction_eta_decay", 0.5),
+        mu_max=getattr(args, "friction_mu_max", 5.0),
+        smooth_lambda=getattr(args, "friction_smooth_lambda", 0.05),
+        normalize_laplacian=getattr(args, "friction_normalize_laplacian", True),
+        recompute_mu=getattr(args, "friction_recompute_mu", True),
     )
     optim = OptimizationConfig(
         lr=args.lr,
@@ -249,6 +313,8 @@ def _run_cli(args: argparse.Namespace) -> None:
         train_noise_levels=train_noise_levels,
         noise_vocab=train_noise_levels,
         energy_reg_weight=args.energy_reg_weight,
+        energy_reg_scope=args.energy_reg_scope,
+        energy_reg_mode=args.energy_reg_mode,
         use_amp=not args.no_amp,
         compile_model=args.compile,
     )
@@ -292,13 +358,15 @@ def _run_cli(args: argparse.Namespace) -> None:
         except Exception:
             pass
 
-    # Determinism: default off for performance unless explicitly requested
-    try:
-        torch.use_deterministic_algorithms(
-            args.deterministic, warn_only=not args.deterministic
-        )
-    except Exception:
-        pass
+    # Determinism policy: default ON via set_seed; allow explicit opt-out
+    if args.deterministic is False:
+        try:
+            torch.use_deterministic_algorithms(False)
+            # Allow backend autotuning when not deterministic
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cudnn.deterministic = False
+        except Exception:
+            pass
 
     # DDP distributed flags
     world_size = (
@@ -377,7 +445,7 @@ def _launch_ddp(args: argparse.Namespace) -> None:
 
 def main() -> None:
     args = parse_args()
-    if args.ddp and "LOCAL_RANK" not in os.environ:
+    if args.ddp and "LOCAL_RANK" not in _os.environ:
         _launch_ddp(args)
         return
     _run_cli(args)
@@ -452,7 +520,8 @@ def run_with_device(
             config=config, model=model, loaders=data_bundle.loaders, save_dir=run_dir
         )
     except RuntimeError as exc:
-        if device_choice.device == "cpu":
+        # In DDP, do not attempt process-local CPU fallbacks which cause divergence.
+        if device_choice.device == "cpu" or is_ddp:
             raise
         emit_warning(
             f"RuntimeError encountered on {device_choice.description}: {exc}. Switching to CPU for a retry."
@@ -461,8 +530,7 @@ def run_with_device(
         cpu_choice = DeviceChoice(
             device="cpu", description="CPU execution", brand="CPU", backend="CPU"
         )
-        if (not is_ddp) or int(os.environ.get("LOCAL_RANK", 0)) == 0:
-            write_env(run_dir / "env.txt", cpu_choice)
+        write_env(run_dir / "env.txt", cpu_choice)
         model = build()
         run_training(
             config=config, model=model, loaders=data_bundle.loaders, save_dir=run_dir

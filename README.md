@@ -45,7 +45,11 @@ Key CLI knobs:
 
 - `--train_noise_levels clean,low,med,high` controls which noise intensities are duplicated in the training split (default mixes全部四档)；
 - `--energy_reg_weight 1e-4` 在训练损失中加入 `log(1+E)` 正则；
+- `--energy_reg_scope {all,last}` 控制能量正则施加在全部摩擦层能量之和还是仅最后一层（默认 `all`）；
+- `--energy_reg_mode {absolute,normalized}`：`absolute` 直接惩罚 `log1p(E)`，`normalized` 惩罚 batch 内 `log1p(E)` 相对均值的平方，避免整体能量塌缩；
 - existing `--noise_intensity {low,med,high}` 选择验证/测试噪声强度。
+ - Friction knobs: `--friction.eta_decay`, `--friction.mu_max`, `--friction.smooth_lambda`,
+   `--friction.{normalize_laplacian,no_normalize_laplacian}`, `--friction.{recompute_mu,no_recompute_mu}`。
 
 ## Result artifacts
 
@@ -62,7 +66,9 @@ Optional per-sample energy dumps live in `energy_per_sample.csv` when explicitly
 
 ## Reproducibility
 
-The code fixes seeds (Python, NumPy, PyTorch) via `utils.seed.set_seed`, enforces deterministic cuDNN behavior, and records package/device metadata in `env.txt`. Small models (hidden size 256, four layers) keep runtime reasonable on CPUs or commodity GPUs. If dataset downloads fail, the CLI raises a descriptive error so you can pre-download via `datasets` cache.
+Determinism defaults to ON. We seed Python/NumPy/PyTorch via `utils.seed.set_seed` and enable deterministic algorithms/cudnn. You can opt out with `--no_deterministic` to favor throughput (non-reproducible). Package/device metadata is recorded in `env.txt`. If dataset downloads fail, the CLI raises a descriptive error so you can pre-download via `datasets` cache.
+
+Note on DDP: automatic GPU→CPU fallback is disabled for DDP jobs to avoid multi-process divergence. In DDP, failures are surfaced for an explicit rerun on CPU if needed.
 
 ## Project tracking
 

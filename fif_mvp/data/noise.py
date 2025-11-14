@@ -15,7 +15,7 @@ NOISE_PRESETS: Dict[str, Dict[str, float]] = {
 DEFAULT_NOISE_LEVELS: List[str] = ["clean", "low", "med", "high"]
 LEVEL_HASH = {"clean": 3, "low": 11, "med": 23, "high": 37}
 
-VOCAB = string.ascii_lowercase + string.ascii_letters + string.digits
+VOCAB = string.ascii_letters + string.digits
 
 
 def apply_noise(text: str, config: Dict[str, float], rng: random.Random) -> str:

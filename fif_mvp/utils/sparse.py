@@ -7,7 +7,7 @@ where Python-side list building dominates time.
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import torch
 from torch.nn import functional as F

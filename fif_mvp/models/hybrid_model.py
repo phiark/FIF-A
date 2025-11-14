@@ -9,6 +9,7 @@ from torch import nn
 
 from fif_mvp.config import FrictionConfig
 from fif_mvp.train import energy as energy_utils
+from . import ModelOutput
 
 from .friction_layer import FrictionLayer
 from .transformer_baseline import TransformerBlock
@@ -55,7 +56,7 @@ class HybridClassifier(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         noise_level_ids: Optional[torch.Tensor] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> ModelOutput:
         batch_size, seq_len = input_ids.shape
         positions = (
             torch.arange(seq_len, device=input_ids.device)
@@ -80,10 +81,18 @@ class HybridClassifier(nn.Module):
         pooled = self._pool(hidden, attention_mask)
         logits = self.classifier(self.norm(pooled))
         if energy_terms:
-            per_sample_energy = torch.stack(energy_terms, dim=0).sum(dim=0)
+            energy_components = torch.stack(energy_terms, dim=0)
+            per_sample_energy = energy_components.sum(dim=0)
         else:
+            energy_components = None
             per_sample_energy = energy_utils.sequence_energy(hidden, attention_mask)
-        return (logits, per_sample_energy, hidden)
+
+        return ModelOutput(
+            logits=logits,
+            per_sample_energy=per_sample_energy,
+            hidden_states=hidden,
+            energy_components=energy_components,
+        )
 
     @staticmethod
     def _pool(hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:

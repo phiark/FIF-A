@@ -58,6 +58,8 @@ class ExperimentConfig:
     noise_vocab: List[str] = field(default_factory=lambda: ["clean"])
     train_noise_levels: List[str] = field(default_factory=list)
     energy_reg_weight: float = 0.0
+    energy_reg_scope: Literal["all", "last"] = "all"
+    energy_reg_mode: Literal["absolute", "normalized"] = "absolute"
     # Acceleration options
     use_amp: bool = True
     compile_model: bool = False
