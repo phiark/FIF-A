@@ -29,6 +29,9 @@ python -m fif_mvp.cli.run_experiment \
   --friction.K 3 \
   --friction.radius 2 \
   --friction.neighbor window \
+  --friction.no_recompute_mu \
+  --compile \
+  --no_deterministic \
   --energy_reg_weight 1e-4 \
-  --workers 4 \
+  --workers -1 \
   --save_dir ./result
