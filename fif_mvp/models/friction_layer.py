@@ -55,20 +55,11 @@ class FrictionLayer(nn.Module):
                 )
                 seq_out, seq_energy = self._run_window_batch(seq_hidden, edges)
             else:
-                seq_out_chunks = []
-                seq_energy_vals = []
-                for local_idx, sample_idx in enumerate(indices):
-                    seq_mask = attention_mask[sample_idx, :length]
-                    edges = self._build_edges(
-                        hidden[sample_idx, :length], seq_mask, cache=None
-                    )
-                    out_single, energy_single = self._run_single(
-                        hidden[sample_idx, :length], edges
-                    )
-                    seq_out_chunks.append(out_single.unsqueeze(0))
-                    seq_energy_vals.append(energy_single.unsqueeze(0))
-                seq_out = torch.cat(seq_out_chunks, dim=0)
-                seq_energy = torch.cat(seq_energy_vals, dim=0)
+                bucket_mask = attention_mask[indices, :length]
+                edges = sparse_utils.build_knn_edges_batched(
+                    seq_hidden, bucket_mask, k=self.config.k
+                )
+                seq_out, seq_energy = self._run_knn_batch(seq_hidden, edges)
 
             outputs[indices, :length] = seq_out
             energies[indices] = seq_energy
@@ -151,6 +142,42 @@ class FrictionLayer(nn.Module):
         energy = energy_utils.edge_energy_batch(final_mu, state, edges)
         return out, energy
 
+    def _run_knn_batch(
+        self, seq_hidden: torch.Tensor, batched_edges: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        batch_size, length, _ = seq_hidden.shape
+        if batched_edges.numel() == 0 or batch_size == 0:
+            return seq_hidden, seq_hidden.new_zeros(batch_size)
+        batch_ids = batched_edges[:, 0]
+        idx_i = batched_edges[:, 1]
+        idx_j = batched_edges[:, 2]
+        offsets = batch_ids * length
+        global_edges = torch.stack((offsets + idx_i, offsets + idx_j), dim=1).long()
+
+        q = self.q_proj(seq_hidden)
+        state = seq_hidden
+        last_mu = None
+        for step in range(self.config.K):
+            base = state if self.config.recompute_mu else seq_hidden
+            mu = self._edge_weights_variable(base, global_edges)
+            if self.config.mu_max > 0:
+                mu = mu.clamp_max(self.config.mu_max)
+            lap = self._laplacian_variable(state, global_edges, mu)
+            eta = self._step_eta(step)
+            state = state - eta * (lap - q)
+            state = self._smooth_batch(state)
+            last_mu = mu
+        out = self.norm(state + seq_hidden)
+        final_mu = (
+            last_mu
+            if last_mu is not None
+            else self._edge_weights_variable(state, global_edges)
+        )
+        energy = self._edge_energy_variable(
+            final_mu, state, global_edges, batch_size, length
+        )
+        return out, energy
+
     def _edge_weights(self, hidden: torch.Tensor, edges: torch.Tensor) -> torch.Tensor:
         h_i = hidden[edges[:, 0]]
         h_j = hidden[edges[:, 1]]
@@ -176,6 +203,19 @@ class FrictionLayer(nn.Module):
         mu = F.softplus(self.edge_mlp(flat)) + 1e-5
         return mu.reshape(hidden.size(0), feats.size(1), 1)
 
+    def _edge_weights_variable(
+        self, hidden: torch.Tensor, global_edges: torch.Tensor
+    ) -> torch.Tensor:
+        flat = hidden.reshape(-1, hidden.size(-1))
+        h_i = flat[global_edges[:, 0]]
+        h_j = flat[global_edges[:, 1]]
+        diff = h_i - h_j
+        dist = torch.norm(diff, dim=-1, keepdim=True)
+        cos = F.cosine_similarity(h_i, h_j, dim=-1, eps=1e-6).unsqueeze(-1)
+        feats = torch.cat([dist, cos], dim=-1)
+        mu = F.softplus(self.edge_mlp(feats)) + 1e-5
+        return mu
+
     def _laplacian(
         self, hidden: torch.Tensor, edges: torch.Tensor, mu: torch.Tensor
     ) -> torch.Tensor:
@@ -195,6 +235,50 @@ class FrictionLayer(nn.Module):
         lap.index_add_(0, edges[:, 0], weighted)
         lap.index_add_(0, edges[:, 1], -weighted)
         return lap
+
+    def _laplacian_variable(
+        self, hidden: torch.Tensor, global_edges: torch.Tensor, mu: torch.Tensor
+    ) -> torch.Tensor:
+        batch_size, length, hidden_dim = hidden.shape
+        flat = hidden.reshape(batch_size * length, hidden_dim)
+        idx_i = global_edges[:, 0]
+        idx_j = global_edges[:, 1]
+        diffs = flat[idx_i] - flat[idx_j]
+        weighted = mu * diffs
+        if self.config.normalize_laplacian and global_edges.numel() > 0:
+            deg = flat.new_zeros(batch_size * length)
+            weights = mu.squeeze(-1)
+            deg.index_add_(0, idx_i, weights)
+            deg.index_add_(0, idx_j, weights)
+            deg = deg.clamp_min(1e-6)
+            inv = deg.pow(-0.5)
+            scale = (inv[idx_i] * inv[idx_j]).unsqueeze(-1)
+            weighted = weighted * scale
+        lap = flat.new_zeros_like(flat)
+        lap.index_add_(0, idx_i, weighted)
+        lap.index_add_(0, idx_j, -weighted)
+        return lap.view(batch_size, length, hidden_dim)
+
+    def _edge_energy_variable(
+        self,
+        mu: torch.Tensor,
+        hidden: torch.Tensor,
+        global_edges: torch.Tensor,
+        batch_size: int,
+        length: int,
+    ) -> torch.Tensor:
+        flat = hidden.reshape(batch_size * length, hidden.size(-1))
+        h_i = flat[global_edges[:, 0]]
+        h_j = flat[global_edges[:, 1]]
+        diff = h_i - h_j
+        squared = diff.pow(2).sum(dim=-1)
+        edge_vals = 0.5 * mu.squeeze(-1) * squared
+        per_sample = hidden.new_zeros(batch_size)
+        batch_ids = torch.div(global_edges[:, 0], length, rounding_mode="floor").to(
+            torch.long
+        )
+        per_sample.index_add_(0, batch_ids, edge_vals)
+        return per_sample
 
     def _laplacian_batch(
         self, hidden: torch.Tensor, edges: torch.Tensor, mu: torch.Tensor
