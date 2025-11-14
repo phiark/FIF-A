@@ -523,6 +523,26 @@ def run_with_device(
         # In DDP, do not attempt process-local CPU fallbacks which cause divergence.
         if device_choice.device == "cpu" or is_ddp:
             raise
+        # If failure is related to torch.compile/triton toolchain, retry on the SAME device without compile first.
+        msg = str(exc)
+        if config.compile_model and (
+            "triton" in msg.lower()
+            or "dynamo" in msg.lower()
+            or "Python.h" in msg
+            or "CalledProcessError" in msg
+        ):
+            emit_warning(
+                "torch.compile failed at runtime; retrying on GPU without compilation."
+            )
+            config.compile_model = False
+            model = build()
+            run_training(
+                config=config,
+                model=model,
+                loaders=data_bundle.loaders,
+                save_dir=run_dir,
+            )
+            return
         emit_warning(
             f"RuntimeError encountered on {device_choice.description}: {exc}. Switching to CPU for a retry."
         )
