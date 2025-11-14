@@ -109,3 +109,4 @@
   4. CLI 扩展：新增 `--friction.{eta_decay,mu_max,smooth_lambda,normalize_laplacian/no_normalize_laplacian,recompute_mu/no_recompute_mu}`（`fif_mvp/cli/run_experiment.py`）。
   5. 确定性：默认 `--deterministic` 开启，允许 `--no_deterministic` 显式关闭；移除相互矛盾的二次设置（`README.md`/`run_experiment.py`）。
   6. 清理：移除重复 import（`data/__init__.py`）、简化噪声字符集（`data/noise.py`）、去除未使用依赖 `torchvision`（`requirements.txt`）。
+  7. 采样优化（可选）：新增 `--sortish_batches`（非 DDP）在训练集上进行长度近似分桶采样，减少 padding（`fif_mvp/data/*`, `README.md`）。

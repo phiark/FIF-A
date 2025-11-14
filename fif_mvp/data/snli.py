@@ -19,6 +19,8 @@ def load_snli(
     distributed: bool = False,
     world_size: Optional[int] = None,
     rank: Optional[int] = None,
+    sortish_batches: bool = False,
+    sortish_chunk_mult: int = 50,
 ) -> Tuple[Dict[str, DataLoader], Dict]:
     """Load SNLI via the datasets hub."""
 
@@ -65,6 +67,12 @@ def load_snli(
                 shuffle=True,
                 drop_last=False,
             )
+            shuffle = False
+        elif (not distributed) and sortish_batches and split == "train":
+            lengths = [len(x) for x in dataset[split]["input_ids"]]
+            from . import SortishSampler
+
+            sampler = SortishSampler(lengths, batch_size=batch_size, chunk_mult=sortish_chunk_mult)
             shuffle = False
         loaders[split] = DataLoader(
             dataset[split],

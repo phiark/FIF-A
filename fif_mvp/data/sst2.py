@@ -29,6 +29,8 @@ def load_sst2(
     distributed: bool = False,
     world_size: Optional[int] = None,
     rank: Optional[int] = None,
+    sortish_batches: bool = False,
+    sortish_chunk_mult: int = 50,
 ) -> Tuple[Dict[str, DataLoader], Dict]:
     """Load SST-2, optionally applying evaluation noise."""
 
@@ -126,6 +128,13 @@ def load_sst2(
                 shuffle=True,
                 drop_last=False,
             )
+            shuffle = False
+        elif (not distributed) and sortish_batches and split == "train":
+            # Build sortish sampler from input length
+            lengths = [len(x) for x in dataset[split]["input_ids"]]
+            from . import SortishSampler  # local import to avoid cycles
+
+            sampler = SortishSampler(lengths, batch_size=batch_size, chunk_mult=sortish_chunk_mult)
             shuffle = False
         loaders[split] = DataLoader(
             dataset[split],

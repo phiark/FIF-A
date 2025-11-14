@@ -48,8 +48,9 @@ Key CLI knobs:
 - `--energy_reg_scope {all,last}` 控制能量正则施加在全部摩擦层能量之和还是仅最后一层（默认 `all`）；
 - `--energy_reg_mode {absolute,normalized}`：`absolute` 直接惩罚 `log1p(E)`，`normalized` 惩罚 batch 内 `log1p(E)` 相对均值的平方，避免整体能量塌缩；
 - existing `--noise_intensity {low,med,high}` 选择验证/测试噪声强度。
- - Friction knobs: `--friction.eta_decay`, `--friction.mu_max`, `--friction.smooth_lambda`,
-   `--friction.{normalize_laplacian,no_normalize_laplacian}`, `--friction.{recompute_mu,no_recompute_mu}`。
+- Friction knobs: `--friction.eta_decay`, `--friction.mu_max`, `--friction.smooth_lambda`,
+  `--friction.{normalize_laplacian,no_normalize_laplacian}`, `--friction.{recompute_mu,no_recompute_mu}`。
+ - Data sampling: `--sortish_batches`（非 DDP）与 `--sortish_chunk_mult` 控制长度近似分桶，减少 padding 开销。
 
 ## Result artifacts
 

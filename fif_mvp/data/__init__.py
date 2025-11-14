@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence
 import os
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Sampler
 
 from .noise import DEFAULT_NOISE_LEVELS, NOISE_PRESETS
 from .snli import load_snli
@@ -63,6 +63,37 @@ class SequenceCollator:
         }
 
 
+class SortishSampler(Sampler[int]):
+    """Sortish sampler: shuffles indices, then sorts within chunks by length.
+
+    This reduces padding while preserving randomness. Non-distributed only.
+    """
+
+    def __init__(self, lengths: List[int], batch_size: int, chunk_mult: int = 50) -> None:
+        self.lengths = lengths
+        self.batch_size = max(1, batch_size)
+        self.chunk_size = max(self.batch_size * max(1, chunk_mult), self.batch_size)
+
+        import numpy as _np
+
+        n = len(lengths)
+        idx = _np.arange(n)
+        _np.random.shuffle(idx)
+        chunks = [idx[i : i + self.chunk_size] for i in range(0, n, self.chunk_size)]
+        # Sort each chunk by length descending
+        self.order = []
+        for ch in chunks:
+            ch_list = list(ch)
+            ch_list.sort(key=lambda i: lengths[i], reverse=True)
+            self.order.extend(ch_list)
+
+    def __iter__(self):  # type: ignore[override]
+        return iter(self.order)
+
+    def __len__(self) -> int:  # type: ignore[override]
+        return len(self.order)
+
+
 def build_dataloaders(
     task: str,
     tokenizer,
@@ -75,6 +106,8 @@ def build_dataloaders(
     distributed: bool = False,
     world_size: Optional[int] = None,
     rank: Optional[int] = None,
+    sortish_batches: bool = False,
+    sortish_chunk_mult: int = 50,
 ) -> DataBundle:
     """Return dataloaders and metadata for the requested task."""
 
@@ -111,6 +144,8 @@ def build_dataloaders(
             distributed=distributed,
             world_size=world_size,
             rank=rank,
+            sortish_batches=sortish_batches,
+            sortish_chunk_mult=sortish_chunk_mult,
         )
         return DataBundle(
             loaders=loaders,
@@ -131,6 +166,8 @@ def build_dataloaders(
             distributed=distributed,
             world_size=world_size,
             rank=rank,
+            sortish_batches=sortish_batches,
+            sortish_chunk_mult=sortish_chunk_mult,
         )
         return DataBundle(
             loaders=loaders,
@@ -158,6 +195,8 @@ def build_dataloaders(
             distributed=distributed,
             world_size=world_size,
             rank=rank,
+            sortish_batches=sortish_batches,
+            sortish_chunk_mult=sortish_chunk_mult,
         )
         return DataBundle(
             loaders=loaders,

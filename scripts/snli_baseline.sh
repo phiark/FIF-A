@@ -26,5 +26,6 @@ python -m fif_mvp.cli.run_experiment \
   --batch_size 256 \
   --lr 3e-4 \
   --seed "${SEED}" \
-  --workers 4 \
+  --no_deterministic \
+  --workers -1 \
   --save_dir ./result

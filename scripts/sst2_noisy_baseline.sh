@@ -30,6 +30,7 @@ for intensity in "${INTENSITIES[@]}"; do
     --seed "${SEED}" \
     --energy_reg_weight 1e-4 \
     --noise_intensity "${intensity}" \
-    --workers 4 \
+    --no_deterministic \
+    --workers -1 \
     --save_dir ./result
 done

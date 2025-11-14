@@ -170,6 +170,18 @@ def parse_args() -> argparse.Namespace:
         default=-1,
         help="Number of CUDA processes to launch when using --ddp. Defaults to all visible GPUs.",
     )
+    # Data sampling
+    parser.add_argument(
+        "--sortish_batches",
+        action="store_true",
+        help="Enable sortish batching on training split (non-DDP only) to reduce padding.",
+    )
+    parser.add_argument(
+        "--sortish_chunk_mult",
+        type=int,
+        default=50,
+        help="Chunk multiple for sortish batching (chunk_size = batch_size * mult).",
+    )
     return parser.parse_args()
 
 
@@ -386,6 +398,8 @@ def _run_cli(args: argparse.Namespace) -> None:
         distributed=(world_size > 1),
         world_size=world_size,
         rank=rank_env,
+        sortish_batches=args.sortish_batches,
+        sortish_chunk_mult=args.sortish_chunk_mult,
     )
     config.num_labels = data_bundle.num_labels
     config.noise_vocab = data_bundle.noise_vocab

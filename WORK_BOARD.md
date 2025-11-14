@@ -42,5 +42,6 @@
 | T-013 | CLI 暴露完整 Friction 超参开关 | Codex | Done | 1.0.2 | `fif_mvp/cli/run_experiment.py`, `README.md` |
 | T-014 | 确定性默认开启，提供 `--no_deterministic` 关闭 | Codex | Done | 1.0.2 | `fif_mvp/cli/run_experiment.py`, `README.md` |
 | T-015 | 小清理：重复 import/噪声字符集/去除未用依赖 | Codex | Done | 1.0.2 | `fif_mvp/data/__init__.py`, `fif_mvp/data/noise.py`, `requirements.txt` |
+| T-016 | 训练集长度 Sortish 采样（非 DDP 可选） | Codex | Done | 1.0.2 | `fif_mvp/data/*`, `README.md` |
 
 > 注：负责人暂未指派；当任务进入 `In Progress` 时需补充姓名与预计完成时间。
