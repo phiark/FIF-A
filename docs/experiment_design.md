@@ -40,3 +40,19 @@
 1. 使用 `scripts/sst2_noisy_baseline.sh` & `sst2_noisy_hybrid.sh` 重新跑 v1.0.0。
 2. 核对 `PROJECT_TRACKER.md` 记录的版本字段已更新。
 3. 在论文草稿中记录新的能量/准确率对照图（计划使用 `docs/figures/` 输出）。 
+
+## 7. v1.0.3 扩展实验（规划）
+- **配置新增**：
+  - 默认 `--energy_reg_scope last`、`--energy_reg_mode normalized`，λ 扫描 `{1e-5, 5e-5}` 并在训练中基于 `energy_std` 阈值（0.1）动态降权。
+  - `--friction.recompute_mu` 默认开启，并提供 `--friction.k_warmup_epochs`（SNLI=2、SST-2=1）先用 K=1 预热。
+  - `--friction.knn_mode` 提供 `per_sample` 向量化路径且允许 `--friction.graph_cache_size` 以摊薄构图成本。
+  - `--energy_watch std=0.1,p90=0.5` 触发实时告警，结果写入 `alerts.json`。
+- **实验矩阵**：
+
+| 版本 | 模型 | 数据 | 正则设置 | 预热 | 目标 |
+| --- | --- | --- | --- | --- | --- |
+| v1.0.3-A | Hybrid | SNLI | scope=last, mode=normalized, λ=1e-5 | 2 epoch K=1 → K=3 | `acc ≥ 0.74`, `pearson_r ≥ 0.1`, walltime <3k s |
+| v1.0.3-B | Hybrid | SNLI | scope=last, mode=normalized, λ=5e-5 | 同上 | 观察 λ 敏感性，至少一项指标优于 v1.0.2 |
+| v1.0.3-C | Hybrid | SST-2 noisy low/med/high | 同上，但低噪声 λ=1e-5、med/high λ=5e-5 | 1 epoch 预热 | `Δacc ≥ 0`、`ece` 不劣于 baseline |
+
+- **输出**：完成后撰写 `docs/reports/v1_0_3_results.md` 并在 `PROJECT_TRACKER.md` / `WORK_BOARD.md` 标记任务状态。

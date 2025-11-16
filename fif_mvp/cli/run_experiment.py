@@ -20,7 +20,13 @@ import torch
 import transformers
 from transformers import AutoTokenizer
 
-from fif_mvp.config import ExperimentConfig, FrictionConfig, OptimizationConfig
+from fif_mvp.config import (
+    EnergyGuardConfig,
+    EnergyWatchConfig,
+    ExperimentConfig,
+    FrictionConfig,
+    OptimizationConfig,
+)
 from fif_mvp.data import build_dataloaders
 from fif_mvp.models import build_model
 from fif_mvp.train import run_training
@@ -116,14 +122,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--energy_reg_scope",
         choices=["all", "last"],
-        default="all",
-        help="Use energies from all friction layers or only the last one when applying regularization.",
+        default="last",
+        help="Use energies from all friction layers or only the last one when applying regularization (default: last).",
     )
     parser.add_argument(
         "--energy_reg_mode",
         choices=["absolute", "normalized"],
-        default="absolute",
-        help="absolute: penalize log1p(E); normalized: penalize squared deviation of log1p(E) from the batch mean.",
+        default="normalized",
+        help="absolute: penalize log1p(E); normalized: penalize squared deviation of log1p(E) from the batch mean (default).",
+    )
+    parser.add_argument(
+        "--energy_guard",
+        type=str,
+        default=None,
+        help=(
+            "Dynamic lambda guard thresholds, e.g. std=0.1,factor=0.5,min_weight=1e-5. "
+            "Use 'off' to disable."
+        ),
+    )
+    parser.add_argument(
+        "--energy_watch",
+        type=str,
+        default=None,
+        help="Energy monitoring thresholds, e.g. std=0.1,p90=0.5 (use 'off' to disable).",
     )
     parser.add_argument(
         "--save_dir", type=str, required=True, help="Must reside under ./result"
@@ -185,6 +206,70 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _parse_key_value_arg(raw: str) -> Dict[str, str]:
+    """Parse comma separated key=value pairs."""
+
+    entries: Dict[str, str] = {}
+    for token in raw.split(","):
+        piece = token.strip()
+        if not piece or "=" not in piece:
+            continue
+        key, value = piece.split("=", 1)
+        entries[key.strip().lower()] = value.strip()
+    return entries
+
+
+def _build_energy_guard(arg: str | None) -> EnergyGuardConfig:
+    """Convert CLI guard string to config."""
+
+    guard = EnergyGuardConfig()
+    if arg is None:
+        return guard
+    lowered = arg.strip().lower()
+    if lowered in {"off", "none", "0"}:
+        guard.std_threshold = 0.0
+        return guard
+    kv = _parse_key_value_arg(arg)
+    try:
+        if "std" in kv or "std_threshold" in kv:
+            guard.std_threshold = float(
+                kv.get("std", kv.get("std_threshold", guard.std_threshold))
+            )
+        if "factor" in kv or "scale" in kv:
+            guard.factor = float(kv.get("factor", kv.get("scale", guard.factor)))
+        if "min" in kv or "min_weight" in kv:
+            guard.min_weight = float(
+                kv.get("min", kv.get("min_weight", guard.min_weight))
+            )
+    except ValueError as exc:  # pragma: no cover - CLI validation
+        raise ValueError(
+            f"Invalid --energy_guard value: '{arg}'. Expected floats."
+        ) from exc
+    return guard
+
+
+def _build_energy_watch(arg: str | None) -> EnergyWatchConfig:
+    """Convert CLI watch string to config."""
+
+    watch = EnergyWatchConfig()
+    if arg is None:
+        return watch
+    lowered = arg.strip().lower()
+    if lowered in {"off", "none", "0"}:
+        return watch
+    kv = _parse_key_value_arg(arg)
+    try:
+        if "std" in kv or "std_threshold" in kv:
+            watch.std_threshold = float(kv.get("std", kv.get("std_threshold")))  # type: ignore[arg-type]
+        if "p90" in kv or "p90_threshold" in kv:
+            watch.p90_threshold = float(kv.get("p90", kv.get("p90_threshold")))  # type: ignore[arg-type]
+    except ValueError as exc:  # pragma: no cover - CLI validation
+        raise ValueError(
+            f"Invalid --energy_watch value: '{arg}'. Expected floats."
+        ) from exc
+    return watch
+
+
 @dataclass
 class DeviceChoice:
     device: str
@@ -243,6 +328,8 @@ def _run_cli(args: argparse.Namespace) -> None:
     train_noise_levels = [
         level.strip() for level in args.train_noise_levels.split(",") if level.strip()
     ] or ["clean"]
+    guard_config = _build_energy_guard(args.energy_guard)
+    watch_config = _build_energy_watch(args.energy_watch)
     import os
 
     is_ddp = bool(os.environ.get("LOCAL_RANK") is not None)
@@ -327,6 +414,8 @@ def _run_cli(args: argparse.Namespace) -> None:
         energy_reg_weight=args.energy_reg_weight,
         energy_reg_scope=args.energy_reg_scope,
         energy_reg_mode=args.energy_reg_mode,
+        energy_guard=guard_config,
+        energy_watch=watch_config,
         use_amp=not args.no_amp,
         compile_model=args.compile,
     )

@@ -6,7 +6,7 @@ import json
 import time
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -53,6 +53,8 @@ class Trainer:
         )
         self.rank = getattr(config, "rank", 0)
         self.world_size = getattr(config, "world_size", 1)
+        self.energy_reg_weight = self.config.energy_reg_weight
+        self.energy_alerts: List[Dict[str, Any]] = []
 
     def _build_scheduler(
         self, total_steps: int
@@ -81,10 +83,12 @@ class Trainer:
 
         with Timer() as timer:
             for epoch in range(1, self.config.optimization.epochs + 1):
+                epoch_reg_weight = self.energy_reg_weight
                 train_metrics = self._run_epoch(
                     train_loader, epoch, global_step, total_steps
                 )
                 global_step = train_metrics["global_step"]
+                train_alert = self._check_energy_alert("train", epoch, train_metrics)
                 metrics_rows.append(
                     {
                         "epoch": epoch,
@@ -97,6 +101,8 @@ class Trainer:
                         "energy_log_mean": train_metrics["energy_log"],
                         "energy_std": train_metrics["energy_std"],
                         "energy_p90": train_metrics["energy_p90"],
+                        "energy_alert": int(train_alert),
+                        "energy_reg_weight": epoch_reg_weight,
                     }
                 )
                 energy_rows.append(
@@ -107,17 +113,22 @@ class Trainer:
                         "energy_log_mean": train_metrics["energy_log"],
                         "energy_std": train_metrics["energy_std"],
                         "energy_p90": train_metrics["energy_p90"],
+                        "energy_alert": int(train_alert),
+                        "energy_reg_weight": epoch_reg_weight,
                     }
                 )
 
                 val_metrics = self.evaluate(
                     loaders["validation"], split="validation", epoch=epoch
                 )
+                val_alert = self._check_energy_alert("validation", epoch, val_metrics)
                 metrics_rows.append(
                     {
                         "epoch": epoch,
                         "split": "validation",
                         **val_metrics,
+                        "energy_alert": int(val_alert),
+                        "energy_reg_weight": epoch_reg_weight,
                     }
                 )
                 energy_rows.append(
@@ -128,8 +139,12 @@ class Trainer:
                         "energy_log_mean": val_metrics["energy_log_mean"],
                         "energy_std": val_metrics["energy_std"],
                         "energy_p90": val_metrics["energy_p90"],
+                        "energy_alert": int(val_alert),
+                        "energy_reg_weight": epoch_reg_weight,
                     }
                 )
+
+                self._maybe_backoff_energy_reg(train_metrics["energy_std"], epoch=epoch)
 
                 if global_step >= total_steps:
                     break
@@ -140,7 +155,16 @@ class Trainer:
             record_confusion=True,
             compute_correlation=True,
         )
-        metrics_rows.append({"epoch": 0, "split": "test", **test_metrics})
+        test_alert = self._check_energy_alert("test", None, test_metrics)
+        metrics_rows.append(
+            {
+                "epoch": 0,
+                "split": "test",
+                **test_metrics,
+                "energy_alert": int(test_alert),
+                "energy_reg_weight": self.energy_reg_weight,
+            }
+        )
         energy_rows.append(
             {
                 "epoch": 0,
@@ -149,6 +173,8 @@ class Trainer:
                 "energy_log_mean": test_metrics["energy_log_mean"],
                 "energy_std": test_metrics["energy_std"],
                 "energy_p90": test_metrics["energy_p90"],
+                "energy_alert": int(test_alert),
+                "energy_reg_weight": self.energy_reg_weight,
             }
         )
 
@@ -161,6 +187,7 @@ class Trainer:
             )
             self._write_test_summary(test_metrics)
             self._write_timing(timer.elapsed)
+            self._write_alerts_file()
         return test_metrics
 
     def _run_epoch(
@@ -172,9 +199,9 @@ class Trainer:
     ) -> Dict[str, float]:
         self.model.train()
         losses: List[float] = []
-        preds: List[int] = []
-        labels: List[int] = []
-        energy_terms: List[float] = []
+        preds: List[torch.Tensor] = []
+        labels: List[torch.Tensor] = []
+        energy_terms: List[torch.Tensor] = []
 
         # If using DistributedSampler, set epoch for shuffling
         sampler = getattr(loader, "sampler", None)
@@ -221,11 +248,11 @@ class Trainer:
                     )
                 ce_loss = self.criterion(outputs.logits, batch["labels"])
             loss = ce_loss
-            if self.config.energy_reg_weight > 0.0:
+            if self.energy_reg_weight > 0.0:
                 energy_tensor = self._select_energy_for_regularization(outputs)
                 if energy_tensor.numel() > 0:
                     reg = self._compute_energy_regularizer(energy_tensor)
-                    loss = loss + self.config.energy_reg_weight * reg
+                    loss = loss + self.energy_reg_weight * reg
             if not torch.isfinite(loss):
                 raise RuntimeError("Loss became non-finite.")
             if self.scaler is not None:
@@ -250,17 +277,30 @@ class Trainer:
             losses.append(loss.item())
 
             batch_preds = outputs.logits.argmax(dim=-1)
-            preds.extend(batch_preds.detach().cpu().tolist())
-            labels.extend(batch["labels"].detach().cpu().tolist())
-            energy_terms.extend(outputs.per_sample_energy.detach().cpu().tolist())
+            preds.append(batch_preds.detach().cpu())
+            labels.append(batch["labels"].detach().cpu())
+            energy_terms.append(outputs.per_sample_energy.detach().cpu())
 
             progress.set_postfix({"loss": loss.item()})
 
-        preds_np = np.array(preds) if preds else np.zeros(1)
-        labels_np = np.array(labels) if labels else np.zeros(1)
-        acc = metrics_lib.compute_accuracy(preds_np, labels_np) if preds else 0.0
-        macro_f1 = metrics_lib.compute_macro_f1(preds_np, labels_np) if preds else 0.0
-        energy_array = np.array(energy_terms, dtype=np.float32)
+        preds_tensor = torch.cat(preds) if preds else torch.empty(0, dtype=torch.long)
+        labels_tensor = (
+            torch.cat(labels) if labels else torch.empty(0, dtype=torch.long)
+        )
+        preds_np = preds_tensor.numpy()
+        labels_np = labels_tensor.numpy()
+        acc = (
+            metrics_lib.compute_accuracy(preds_np, labels_np) if preds_np.size else 0.0
+        )
+        macro_f1 = (
+            metrics_lib.compute_macro_f1(preds_np, labels_np) if preds_np.size else 0.0
+        )
+        energy_tensor = (
+            torch.cat(energy_terms)
+            if energy_terms
+            else torch.empty(0, dtype=torch.float32)
+        )
+        energy_array = energy_tensor.numpy()
         energy_mean = float(np.mean(energy_array)) if energy_array.size else 0.0
         energy_log_mean = (
             float(np.mean(np.log1p(np.maximum(energy_array, 0.0))))
@@ -313,6 +353,119 @@ class Trainer:
         log_vals = torch.log1p(clamped + eps)
         centered = log_vals - log_vals.mean()
         return centered.pow(2).mean()
+
+    def _maybe_backoff_energy_reg(self, energy_std: float, epoch: int) -> None:
+        guard = getattr(self.config, "energy_guard", None)
+        if guard is None or self.energy_reg_weight <= 0.0:
+            return
+        threshold = getattr(guard, "std_threshold", 0.0) or 0.0
+        if threshold <= 0.0 or energy_std >= threshold:
+            return
+        min_weight = max(getattr(guard, "min_weight", 0.0), 0.0)
+        if self.energy_reg_weight <= min_weight:
+            return
+        factor = getattr(guard, "factor", 0.5)
+        if not (0.0 < factor < 1.0):
+            factor = 0.5
+        new_weight = max(min_weight, self.energy_reg_weight * factor)
+        if new_weight >= self.energy_reg_weight:
+            return
+        prev = self.energy_reg_weight
+        self.energy_reg_weight = new_weight
+        if self.rank == 0:
+            self.logger.warning(
+                "energy_std=%.4f below guard %.4f -> lowering λ from %.2e to %.2e (epoch=%s)",
+                energy_std,
+                threshold,
+                prev,
+                new_weight,
+                epoch,
+            )
+        self._record_alert(
+            {
+                "type": "guard_backoff",
+                "epoch": epoch,
+                "energy_std": energy_std,
+                "threshold": threshold,
+                "prev_weight": prev,
+                "new_weight": new_weight,
+            }
+        )
+
+    def _check_energy_alert(
+        self, split: str, epoch: Optional[int], metrics: Dict[str, float]
+    ) -> bool:
+        watch = getattr(self.config, "energy_watch", None)
+        if watch is None:
+            return False
+        triggered = False
+        reasons: List[str] = []
+        energy_std = metrics.get("energy_std", 0.0)
+        std_threshold = getattr(watch, "std_threshold", None)
+        if (
+            std_threshold is not None
+            and std_threshold > 0
+            and energy_std < std_threshold
+        ):
+            triggered = True
+            reasons.append(f"std<{std_threshold}")
+        energy_p90 = metrics.get("energy_p90", 0.0)
+        p90_threshold = getattr(watch, "p90_threshold", None)
+        if (
+            p90_threshold is not None
+            and p90_threshold > 0
+            and energy_p90 < p90_threshold
+        ):
+            triggered = True
+            reasons.append(f"p90<{p90_threshold}")
+        if triggered:
+            self._record_alert(
+                {
+                    "type": "watch",
+                    "split": split,
+                    "epoch": epoch,
+                    "energy_std": energy_std,
+                    "energy_p90": energy_p90,
+                    "reasons": reasons,
+                }
+            )
+        return triggered
+
+    def _record_alert(self, entry: Dict[str, Any]) -> None:
+        if self.rank == 0:
+            self.energy_alerts.append(entry)
+
+    def _guard_config_dict(self) -> Dict[str, float]:
+        guard = getattr(self.config, "energy_guard", None)
+        if guard is None:
+            return {}
+        return {
+            "std_threshold": getattr(guard, "std_threshold", 0.0) or 0.0,
+            "factor": getattr(guard, "factor", 0.0),
+            "min_weight": getattr(guard, "min_weight", 0.0),
+        }
+
+    def _watch_config_dict(self) -> Dict[str, float]:
+        watch = getattr(self.config, "energy_watch", None)
+        if watch is None:
+            return {}
+        payload: Dict[str, float] = {}
+        if getattr(watch, "std_threshold", None):
+            payload["std_threshold"] = getattr(watch, "std_threshold")
+        if getattr(watch, "p90_threshold", None):
+            payload["p90_threshold"] = getattr(watch, "p90_threshold")
+        return payload
+
+    def _write_alerts_file(self) -> None:
+        if not self.energy_alerts:
+            return
+        payload = {
+            "energy_guard": self._guard_config_dict(),
+            "energy_watch": self._watch_config_dict(),
+            "events": self.energy_alerts,
+        }
+        with open(self.save_dir / "alerts.json", "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
 
     def evaluate(
         self,

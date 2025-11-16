@@ -110,3 +110,29 @@
   5. 确定性：默认 `--deterministic` 开启，允许 `--no_deterministic` 显式关闭；移除相互矛盾的二次设置（`README.md`/`run_experiment.py`）。
   6. 清理：移除重复 import（`data/__init__.py`）、简化噪声字符集（`data/noise.py`）、去除未使用依赖 `torchvision`（`requirements.txt`）。
   7. 采样优化（可选）：新增 `--sortish_batches`（非 DDP）在训练集上进行长度近似分桶采样，减少 padding（`fif_mvp/data/*`, `README.md`）。
+
+## 版本 1.0.3（规划）
+- **版本号**：1.0.3
+- **更新时间**：2025-11-16
+- **迭代来源**：基于 1.0.2 结果报告与《`docs/reports/v1_0_2_rebuild_upgrade.md`》构建的下一轮重构/升级计划。
+- **版本目标**：
+  1. 恢复 Friction Hybrid 的能量可辨识度，使 `energy_std_test ≥ 0.15` 且 `pearson_r(E,err)` 不再贴近 0。
+  2. 把 Hybrid 训练 walltime 降到 <3k 秒，通过 K 预热与矢量化 kNN 重构改善吞吐。
+  3. 建立运行期能量监控/告警，并把 λ/K 配置暴露到 CLI/README，支撑后续论文实验。
+- **公式与管线（计划变更）**：
+  - **能量正则**：默认改为 `scope=last + mode=normalized`，λ 在 `{1e-5,5e-5}` 间扫描；在 `train/loop.py` 中按 `energy_std` 阈值自适应调整 λ。
+  - **摩擦层迭代**：恢复 `recompute_mu=True`，并引入 `K` 预热（前 `w` 个 epoch 固定 K=1，之后切换到目标值），必要时支持阶段化 `eta_decay/mu_max`。
+  - **kNN/能量计算**：新增 `--friction.knn_mode` 以切换 per-sample vs. batch；批量模式将被彻底张量化，并提供 neighbor cache 以减少构图时间。
+  - **监控**：训练循环记录 `energy_alert` 字段和 `alerts.json`，CLI 提供 `--energy_watch` 配置。
+- **实验记录（规划）**：
+
+| 数据集 | 模型 | 正则设置 | K 预热 | kNN 模式 | 目标指标 |
+| --- | --- | --- | --- | --- | --- |
+| SNLI | Hybrid | λ∈{1e-5,5e-5}, scope=last, mode=normalized | 2 epoch @K=1 → K=3 | per-sample + graph cache | `acc ≥ baseline-2pt`, `pearson_r(E,err) ≥ 0.1` |
+| SST-2 noisy | Hybrid | 同上 | 1 epoch 预热 | per-sample | `Δacc ≥ 0`, `ece` 不回退 |
+
+  - 以上矩阵执行顺序与验收标准详见《`docs/reports/v1_0_2_rebuild_upgrade.md`》§3/§5，完成后将产出新的 `docs/reports/v1_0_3_results.md`。
+- **修改与改进点（计划）**：
+  1. CLI/脚本：更新能量与 Friction 默认参数、暴露 `k_schedule`/`knn_mode`，同步 README（`fif_mvp/cli/run_experiment.py`, `scripts/*.sh`, `README.md`）。
+  2. 模型/训练：在 `fif_mvp/models/friction_layer.py`、`fif_mvp/models/hybrid_model.py`、`fif_mvp/train/loop.py` 中实现 K 预热、动态 λ、能量告警与 kNN 重构。
+  3. 监控/文档：完成 `alerts.json`、`energy_alert` 字段，更新 `docs/experiment_design.md`、`WORK_BOARD.md` 及报告以反映新的实验计划。

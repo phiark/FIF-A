@@ -2,17 +2,17 @@
 
 本工作板旨在跟踪面向论文级实验的版本演进，可随项目增长扩展任务列表。
 
-## 下一个版本（1.0.0）概述
-- **版本号**：1.0.0（首次对训练/评估管线及摩擦层做系统级调整）
-- **为什么需要修改 0.0.0**：
-  - 混合架构在全部噪声级别上均落后基准线，`energy_mean_test` 呈现 1–2 个数量级的漂移，能量与错误相关性不足 0.16。
-  - 训练集缺少噪声样本，摩擦层 µ/η 未调优，导致能量在训练早期爆炸，违背“能量指示置信度”的设想。
-  - 当前能量计算、日志及损失函数之间没有耦合，无法支撑论文主张。
-- **我们为何要做 1.0.0**：验证“在含噪训练与受控能量正则下，混合架构是否具备鲁棒性收益”，为论文提供正向证据或明确失败原因。
+## 下一个版本（1.0.3）概述
+- **版本号**：1.0.3（v1.0.2 之后的重构与升级版）
+- **为什么需要修改 1.0.2**：
+  - SNLI & SST-2 Hybrid 仍存在能量塌缩（`energy_std ≈ 0.02`）与弱相关性，无法支撑“能量≈置信度”假说。
+  - Hybrid 训练 walltime 较 Baseline 高 10×（`docs/reports/v1_0_2_results.md` §2/§4），主要来自批量 kNN 和缺乏 K 预热。
+  - 监控手段缺失，无法在训练期及时发现能量问题，CLI 也未暴露新的调参旋钮。
+- **我们为何要做 1.0.3**：恢复 Hybrid 的能量判别力，同时将吞吐性能和监控体系纳入论文级实验要求，为 v1.0.3 数据点提供可信鲁棒性对照。
 - **版本目标**：
-  1. 在训练阶段引入与评测一致的噪声，并可按 `noise_level` 条件化模型。
-  2. 重构 Friction Layer 的 µ/迭代策略，抑制能量爆炸（归一化、可学习温度、梯度稳定）。
-  3. 在损失中加入能量/不确定性正则化，使能量信号与错误概率产生可测联系。
+  1. 默认 `scope=last + mode=normalized` 并扫描 λ，确保 `energy_std_test ≥ 0.15` 且 `pearson_r ≥ 0.1`。
+  2. 通过 `recompute_mu=True` + K 预热 + 向量化 kNN 把 Hybrid walltime 降到 <3k 秒。
+  3. 在训练循环中加入能量阈值告警与动态 λ，CLI/README 反映新的开关。
 
 ## 任务板标准
 - **列定义**：`Backlog`（未启动）、`In Progress`、`Blocked`、`Review`、`Done`。
@@ -45,3 +45,10 @@
 | T-016 | 训练集长度 Sortish 采样（非 DDP 可选） | Codex | Done | 1.0.2 | `fif_mvp/data/*`, `README.md` |
 
 > 注：负责人暂未指派；当任务进入 `In Progress` 时需补充姓名与预计完成时间。
+
+## v1.0.3 活动任务
+| ID | 描述 | 负责人 | 状态 | 目标版本 | 关联输出/备注 |
+| --- | --- | --- | --- | --- | --- |
+| T-017 | 能量正则重构：默认 `scope=last, mode=normalized`、λ 动态降权 + λ 扫描脚本 | Codex | In Progress | 1.0.3 | `fif_mvp/cli/run_experiment.py`, `fif_mvp/train/loop.py`, `README.md`, `scripts/snli_hybrid.sh` |
+| T-018 | Friction 迭代升级：`recompute_mu=True`、K 预热与阶段化 η/μ，更新 Hybrid 训练脚本 | Codex | Backlog | 1.0.3 | `fif_mvp/models/friction_layer.py`, `fif_mvp/models/hybrid_model.py`, `scripts/snli_hybrid.sh` |
+| T-019 | kNN/监控系统：per-sample 向量化、graph cache、`energy_alert`/`alerts.json` 告警 | Codex | Backlog | 1.0.3 | `fif_mvp/models/friction_layer.py`, `fif_mvp/train/loop.py`, `README.md` |

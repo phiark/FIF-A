@@ -29,11 +29,14 @@ for intensity in "${INTENSITIES[@]}"; do
     --lr 3e-4 \
     --seed "${SEED}" \
     --energy_reg_weight 1e-4 \
+    --energy_reg_scope last \
+    --energy_reg_mode normalized \
+    --energy_guard std=0.1,factor=0.5,min_weight=1e-5 \
+    --energy_watch std=0.1,p90=0.5 \
     --noise_intensity "${intensity}" \
     --friction.K 1 \
     --friction.radius 2 \
     --friction.neighbor window \
-    --friction.no_recompute_mu \
     --no_deterministic \
     --workers -1 \
     --save_dir ./result

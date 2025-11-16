@@ -23,6 +23,23 @@ class FrictionConfig:
 
 
 @dataclass
+class EnergyGuardConfig:
+    """Dynamic guard for energy regularization weight."""
+
+    std_threshold: float = 0.1
+    factor: float = 0.5
+    min_weight: float = 0.0
+
+
+@dataclass
+class EnergyWatchConfig:
+    """Run-time monitoring thresholds for energy statistics."""
+
+    std_threshold: float | None = None
+    p90_threshold: float | None = None
+
+
+@dataclass
 class OptimizationConfig:
     """Optimizer/scheduler configuration."""
 
@@ -60,6 +77,8 @@ class ExperimentConfig:
     energy_reg_weight: float = 0.0
     energy_reg_scope: Literal["all", "last"] = "all"
     energy_reg_mode: Literal["absolute", "normalized"] = "absolute"
+    energy_guard: EnergyGuardConfig = field(default_factory=EnergyGuardConfig)
+    energy_watch: EnergyWatchConfig = field(default_factory=EnergyWatchConfig)
     # Acceleration options
     use_amp: bool = True
     compile_model: bool = False
