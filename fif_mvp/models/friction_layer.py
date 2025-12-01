@@ -66,25 +66,6 @@ class FrictionLayer(nn.Module):
 
         return outputs, energies
 
-    def _build_edges(
-        self,
-        seq_hidden: torch.Tensor,
-        seq_mask: torch.Tensor,
-        cache: dict[int, torch.Tensor] | None = None,
-    ) -> torch.Tensor:
-        length = seq_hidden.size(0)
-        device = seq_hidden.device
-        if self.config.neighbor == "window":
-            if cache is not None and length in cache:
-                return cache[length]
-            edges = sparse_utils.build_window_edges(
-                length, radius=self.config.radius, device=device
-            )
-            if cache is not None:
-                cache[length] = edges
-            return edges
-        return sparse_utils.build_knn_edges(seq_hidden, seq_mask, k=self.config.k)
-
     def _run_single(
         self, seq_hidden: torch.Tensor, edges: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:

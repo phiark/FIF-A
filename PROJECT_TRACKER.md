@@ -111,28 +111,40 @@
   6. 清理：移除重复 import（`data/__init__.py`）、简化噪声字符集（`data/noise.py`）、去除未使用依赖 `torchvision`（`requirements.txt`）。
   7. 采样优化（可选）：新增 `--sortish_batches`（非 DDP）在训练集上进行长度近似分桶采样，减少 padding（`fif_mvp/data/*`, `README.md`）。
 
-## 版本 1.0.3（规划）
+## 版本 1.0.3
 - **版本号**：1.0.3
 - **更新时间**：2025-11-16
-- **迭代来源**：基于 1.0.2 结果报告与《`docs/reports/v1_0_2_rebuild_upgrade.md`》构建的下一轮重构/升级计划。
+- **迭代来源**：基于 1.0.2 结果报告与《`docs/reports/v1_0_2_rebuild_upgrade.md`》执行的新一轮实验。
 - **版本目标**：
-  1. 恢复 Friction Hybrid 的能量可辨识度，使 `energy_std_test ≥ 0.15` 且 `pearson_r(E,err)` 不再贴近 0。
-  2. 把 Hybrid 训练 walltime 降到 <3k 秒，通过 K 预热与矢量化 kNN 重构改善吞吐。
-  3. 建立运行期能量监控/告警，并把 λ/K 配置暴露到 CLI/README，支撑后续论文实验。
-- **公式与管线（计划变更）**：
-  - **能量正则**：默认改为 `scope=last + mode=normalized`，λ 在 `{1e-5,5e-5}` 间扫描；在 `train/loop.py` 中按 `energy_std` 阈值自适应调整 λ。
-  - **摩擦层迭代**：恢复 `recompute_mu=True`，并引入 `K` 预热（前 `w` 个 epoch 固定 K=1，之后切换到目标值），必要时支持阶段化 `eta_decay/mu_max`。
-  - **kNN/能量计算**：新增 `--friction.knn_mode` 以切换 per-sample vs. batch；批量模式将被彻底张量化，并提供 neighbor cache 以减少构图时间。
-  - **监控**：训练循环记录 `energy_alert` 字段和 `alerts.json`，CLI 提供 `--energy_watch` 配置。
-- **实验记录（规划）**：
+  1. 通过 `scope=last + mode=normalized`、`energy_guard/std=0.1` 与 `energy_watch(std=0.1,p90=0.5)` 恢复 Hybrid 能量可辨识度。
+  2. 让监控流程在能量贴地时提供可追溯告警，并写入 `alerts.json`。
+  3. 收集 SNLI + Noisy SST-2（low/med/high）在该配置下的对照指标，为后续 K 预热与 kNN 重构提供基线。
+- **公式与管线（当前状态）**：
+  - **能量正则**：CL I 默认 `scope=last`、`mode=normalized`、λ=1e-4，并允许 `--energy_guard/--energy_watch` 配置；训练循环聚合 `energy_alert` 并持久化 `alerts.json`（`fif_mvp/cli/run_experiment.py`, `fif_mvp/train/loop.py`）。
+  - **摩擦层**：仍沿用 v1.0.2（`recompute_mu=False`、K=3），尚未落实预热或 kNN 重构——本轮结果证实吞吐/能量问题依旧（详见报告 §4）。
+  - **监控产物**：`metrics_epoch.csv`/`energy_epoch.csv` 追加 `energy_alert` 与 `energy_reg_weight` 列；当 watch/guard 触发时写入 `alerts.json`。
+- **实验记录**：
+  - SNLI：Hybrid 仍落后 Baseline 8pt（0.697 vs 0.777），能量均值/Std=6.3k/1.5k，pearson_r≈+0.02，训练 8700 s；详见 `docs/reports/v1_0_3_results.md` §2（引用 `result/103/snli_*`）。
+  - SST-2 noisy：Hybrid 在 low 噪声落后 1.5pt，但在 med/high 领先 2.7/2.2pt；能量均值约 1–2，watch 在 low/med 的 epoch 1 因 `p90<0.5` 报警（`alerts.json`），pearson_r 仍接近 0（`docs/reports/v1_0_3_results.md` §3-4）。
+- **修改与改进点（后续）**：
+  1. CLI/脚本已切到新默认；下一步需要在 `fif_mvp/models/*` 中加入 K 预热、`recompute_mu=True` 以及 per-sample kNN。
+  2. 在 guard 中加入能量上限或标准差上/下界逻辑，让 SNLI Hybrid 的高能量也能触发 λ 调整。
+  3. 基于本轮 `timing.json`（Hybrid 平均 0.80 s/step）聚焦 `_run_knn_batch` 重构，以实现路线图中“<3k 秒” 的目标。
 
-| 数据集 | 模型 | 正则设置 | K 预热 | kNN 模式 | 目标指标 |
-| --- | --- | --- | --- | --- | --- |
-| SNLI | Hybrid | λ∈{1e-5,5e-5}, scope=last, mode=normalized | 2 epoch @K=1 → K=3 | per-sample + graph cache | `acc ≥ baseline-2pt`, `pearson_r(E,err) ≥ 0.1` |
-| SST-2 noisy | Hybrid | 同上 | 1 epoch 预热 | per-sample | `Δacc ≥ 0`, `ece` 不回退 |
-
-  - 以上矩阵执行顺序与验收标准详见《`docs/reports/v1_0_2_rebuild_upgrade.md`》§3/§5，完成后将产出新的 `docs/reports/v1_0_3_results.md`。
-- **修改与改进点（计划）**：
-  1. CLI/脚本：更新能量与 Friction 默认参数、暴露 `k_schedule`/`knn_mode`，同步 README（`fif_mvp/cli/run_experiment.py`, `scripts/*.sh`, `README.md`）。
-  2. 模型/训练：在 `fif_mvp/models/friction_layer.py`、`fif_mvp/models/hybrid_model.py`、`fif_mvp/train/loop.py` 中实现 K 预热、动态 λ、能量告警与 kNN 重构。
-  3. 监控/文档：完成 `alerts.json`、`energy_alert` 字段，更新 `docs/experiment_design.md`、`WORK_BOARD.md` 及报告以反映新的实验计划。
+## 版本 1.0.4（进行中）
+- **版本号**：1.0.4
+- **更新时间**：2025-12-02
+- **迭代来源**：基于 v1.0.3 的性能瓶颈与文档可维护性需求。
+- **版本目标**：
+  1. 清理死代码 / 过时辅助函数，明确核心模块边界，降低新成员理解门槛；
+  2. 重写批量 kNN 构图为张量化实现，缓解 SNLI Hybrid 的 `_run_knn_batch` Python 热点；
+  3. 为开发 / 故障排查提供结构化说明，记录重构计划（`docs/code_structure.md`）。
+- **公式与管线（变更）**：
+  - **kNN 构图**：`build_knn_edges_batched` 由 `O(B⋅L⋅k)` Python 集合遍历改为一次 `B×L×L` 相似度矩阵 + `topk` 筛选，仍输出无向边 `(batch, i, j)`，对 `FrictionLayer` 的能量/梯度保持兼容。
+  - **FrictionLayer**：移除未被调用的 `_build_edges` 接口，避免二义性；其它数学形式沿用 v1.0.3。
+- **实验记录**：本次提交仅完成代码整理 + 算子重写，尚未重新跑 SNLI/SST-2；待 T-021 执行完整复现实验后补充 acc/ECE/能量对照。
+- **修改与改进点**：
+  1. `fif_mvp/utils/sparse.py`：kNN 批量构图向量化（mask + `torch.topk` + `torch.unique`），删除 Python 集合瓶颈；
+  2. `fif_mvp/models/friction_layer.py`：去除遗留 `_build_edges`，收敛公开 API；
+  3. `docs/code_structure.md`：新增代码组织与清理路线图，为 v1.0.4 提供规范说明；
+  4. 工作板补充 v1.0.4 任务，方便跟踪重构 / 性能验证。

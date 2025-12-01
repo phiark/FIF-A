@@ -52,3 +52,11 @@
 | T-017 | 能量正则重构：默认 `scope=last, mode=normalized`、λ 动态降权 + λ 扫描脚本 | Codex | In Progress | 1.0.3 | `fif_mvp/cli/run_experiment.py`, `fif_mvp/train/loop.py`, `README.md`, `scripts/snli_hybrid.sh` |
 | T-018 | Friction 迭代升级：`recompute_mu=True`、K 预热与阶段化 η/μ，更新 Hybrid 训练脚本 | Codex | Backlog | 1.0.3 | `fif_mvp/models/friction_layer.py`, `fif_mvp/models/hybrid_model.py`, `scripts/snli_hybrid.sh` |
 | T-019 | kNN/监控系统：per-sample 向量化、graph cache、`energy_alert`/`alerts.json` 告警 | Codex | Backlog | 1.0.3 | `fif_mvp/models/friction_layer.py`, `fif_mvp/train/loop.py`, `README.md` |
+
+## v1.0.4 活动任务
+| ID | 描述 | 负责人 | 状态 | 目标版本 | 关联输出/备注 |
+| --- | --- | --- | --- | --- | --- |
+| T-020 | 代码结构规划：梳理目录职责、列出清理路线并文档化 | Codex | Done | 1.0.4 | `docs/code_structure.md`（新增） |
+| T-021 | 批量 kNN 构图向量化，清理 FrictionLayer 遗留辅助函数，记录在版本追踪 | Codex | Done | 1.0.4 | `fif_mvp/utils/sparse.py`, `fif_mvp/models/friction_layer.py`, `PROJECT_TRACKER.md` |
+| T-022 | 运行级回归：基于新构图跑 SNLI/SST-2，并将实验指标写入 `docs/reports/` | Codex | Backlog | 1.0.4 | 待产出 `docs/reports/v1_0_4_*.md`、更新 `result/` |
+| T-023 | Legacy / CI 清理：迁移 `fif_simple/` 至 archive、补齐静态检查（ruff/pytest smoke） | Codex | Backlog | 1.0.4 | 需新增 `tox.ini` + GitHub Actions（规划中） |

@@ -30,3 +30,14 @@ result/
 # IDEs/editors
 .vscode/
 .idea/
+
+# Local
+.env
+
+#AI_prompt
+GEMINI.md
+AGENT.md
+CLAUDE.md
+
+#Legacy
+fif_simple/
