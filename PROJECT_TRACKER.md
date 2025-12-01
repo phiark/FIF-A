@@ -148,3 +148,4 @@
   2. `fif_mvp/models/friction_layer.py`：去除遗留 `_build_edges`，收敛公开 API；
   3. `docs/code_structure.md`：新增代码组织与清理路线图，为 v1.0.4 提供规范说明；
   4. 工作板补充 v1.0.4 任务，方便跟踪重构 / 性能验证。
+  5. 脚本优化：`scripts/snli_baseline.sh` 与 `scripts/snli_hybrid.sh` 默认启用 `--sortish_batches` 减少 padding；新增 `scripts/snli_hybrid_fixedmu.sh` 以 `--friction.no_recompute_mu` 作为对照，便于吞吐与精度权衡实验；SST-2 相同优化同步至 `scripts/sst2_noisy_baseline.sh`、`scripts/sst2_noisy_hybrid.sh` 并新增 `scripts/sst2_noisy_hybrid_fixedmu.sh`。

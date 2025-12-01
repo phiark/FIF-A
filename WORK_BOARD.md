@@ -52,6 +52,7 @@
 | T-017 | 能量正则重构：默认 `scope=last, mode=normalized`、λ 动态降权 + λ 扫描脚本 | Codex | In Progress | 1.0.3 | `fif_mvp/cli/run_experiment.py`, `fif_mvp/train/loop.py`, `README.md`, `scripts/snli_hybrid.sh` |
 | T-018 | Friction 迭代升级：`recompute_mu=True`、K 预热与阶段化 η/μ，更新 Hybrid 训练脚本 | Codex | Backlog | 1.0.3 | `fif_mvp/models/friction_layer.py`, `fif_mvp/models/hybrid_model.py`, `scripts/snli_hybrid.sh` |
 | T-019 | kNN/监控系统：per-sample 向量化、graph cache、`energy_alert`/`alerts.json` 告警 | Codex | Backlog | 1.0.3 | `fif_mvp/models/friction_layer.py`, `fif_mvp/train/loop.py`, `README.md` |
+| T-024 | SNLI/SST-2 训练脚本吞吐优化：开启 `--sortish_batches` 并新增 fixed-μ 变体 | Codex | Done | 1.0.3 | `scripts/snli_*`, `scripts/sst2_noisy_*` |
 
 ## v1.0.4 活动任务
 | ID | 描述 | 负责人 | 状态 | 目标版本 | 关联输出/备注 |

@@ -28,6 +28,7 @@ for intensity in "${INTENSITIES[@]}"; do
     --batch_size 256 \
     --lr 3e-4 \
     --seed "${SEED}" \
+    --sortish_batches \
     --energy_reg_weight 1e-4 \
     --noise_intensity "${intensity}" \
     --no_deterministic \

@@ -29,6 +29,7 @@ python -m fif_mvp.cli.run_experiment \
   --friction.K 3 \
   --friction.radius 2 \
   --friction.neighbor window \
+  --sortish_batches \
   --no_deterministic \
   --energy_reg_weight 1e-4 \
   --energy_reg_scope last \

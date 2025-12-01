@@ -38,7 +38,9 @@ for intensity in "${INTENSITIES[@]}"; do
     --friction.K 1 \
     --friction.radius 2 \
     --friction.neighbor window \
+    --friction.no_recompute_mu \
     --no_deterministic \
     --workers -1 \
     --save_dir ./result
 done
+
