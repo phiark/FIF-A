@@ -43,4 +43,3 @@ for intensity in "${INTENSITIES[@]}"; do
     --workers -1 \
     --save_dir ./result
 done
-

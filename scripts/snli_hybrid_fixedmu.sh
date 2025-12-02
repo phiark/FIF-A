@@ -39,4 +39,3 @@ python -m fif_mvp.cli.run_experiment \
   --energy_watch std=0.1,p90=0.5 \
   --workers -1 \
   --save_dir ./result
-

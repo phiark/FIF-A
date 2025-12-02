@@ -59,5 +59,6 @@
 | --- | --- | --- | --- | --- | --- |
 | T-020 | 代码结构规划：梳理目录职责、列出清理路线并文档化 | Codex | Done | 1.0.4 | `docs/code_structure.md`（新增） |
 | T-021 | 批量 kNN 构图向量化，清理 FrictionLayer 遗留辅助函数，记录在版本追踪 | Codex | Done | 1.0.4 | `fif_mvp/utils/sparse.py`, `fif_mvp/models/friction_layer.py`, `PROJECT_TRACKER.md` |
-| T-022 | 运行级回归：基于新构图跑 SNLI/SST-2，并将实验指标写入 `docs/reports/` | Codex | Backlog | 1.0.4 | 待产出 `docs/reports/v1_0_4_*.md`、更新 `result/` |
+| T-022 | 运行级回归：基于新构图跑 SNLI/SST-2，并将实验指标写入 `docs/reports/` | Codex | In Progress | 1.0.4 | `docs/reports/v1_0_4_experiment_report.md` 已建立模板，脚本输出指向 `result/1_0_4/`，待回填结果 |
+| T-025 | 结果汇总与验真工具：扫描 `result/1_0_4` 聚合 `test_summary/timing` | Codex | Done | 1.0.4 | `scripts/summarize_results.py` |
 | T-023 | Legacy / CI 清理：迁移 `fif_simple/` 至 archive、补齐静态检查（ruff/pytest smoke） | Codex | Backlog | 1.0.4 | 需新增 `tox.ini` + GitHub Actions（规划中） |
