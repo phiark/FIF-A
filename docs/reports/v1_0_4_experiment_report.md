@@ -41,7 +41,7 @@
    - `cat result/1_0_4/*/test_summary.json`
    - `cat result/1_0_4/*/timing.json`
 3. 运行聚合脚本：
-   - `python scripts/summarize_results.py`
+   - `python scripts/summarize_results.py result/1_0_4`（脚本默认聚合 v1.1.0，可传根目录参数）
    - 产出 `result/1_0_4/results_summary.csv`，包含 run_dir/model/acc/ece/avg_step_sec 等汇总字段。
 4. 交叉一致性：确认 `metrics_epoch.csv` 最后一行（split=test 或 epoch=0）与 `test_summary.json` 一致；`avg_step_sec` 与训练日志步速相符。
 

@@ -13,6 +13,9 @@ run_step "scripts/snli_baseline.sh"
 run_step "scripts/snli_hybrid.sh"
 run_step "scripts/sst2_noisy_baseline.sh"
 run_step "scripts/sst2_noisy_hybrid.sh"
+run_step "scripts/sst2_noisy_hybrid_k1_absolute.sh"
+run_step "scripts/snli_hybrid_k1_absolute.sh"
+
 
 RESULT_DIR="$SCRIPT_DIR/result"
 echo "FIF MVP finished successfully. Results at $RESULT_DIR"

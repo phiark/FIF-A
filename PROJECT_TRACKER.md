@@ -150,3 +150,23 @@
   4. 工作板补充 v1.0.4 任务，方便跟踪重构 / 性能验证。
   5. 脚本优化：`scripts/snli_baseline.sh` 与 `scripts/snli_hybrid.sh` 默认启用 `--sortish_batches` 减少 padding；新增 `scripts/snli_hybrid_fixedmu.sh` 以 `--friction.no_recompute_mu` 作为对照，便于吞吐与精度权衡实验；SST-2 相同优化同步至 `scripts/sst2_noisy_baseline.sh`、`scripts/sst2_noisy_hybrid.sh` 并新增 `scripts/sst2_noisy_hybrid_fixedmu.sh`；全部脚本统一 `--save_dir ./result/1_0_4`。
   6. 文档与验真：新增 `docs/reports/v1_0_4_experiment_report.md`（报告模板与验证流程）与 `scripts/summarize_results.py`（结果聚合）。
+
+## 版本 1.1.0（进行中）
+- **版本号**：1.1.0
+- **更新时间**：2025-12-03
+- **迭代来源**：基于 v1.0.4 能量正则（normalized 方差）弱化判别力的诊断。
+- **版本目标**：
+  - 将能量正则默认切换为 `absolute`，并引入 margin/排名式目标，使能量与分类难度正向关联；
+  - 扩充能量-错误指标（AUROC/AUPRC、coverage-risk、正确/错误分组分位），使拒判与置信评估可量化；
+  - 改进监控与 guard，提供能量上下界阈值，防止单向压缩，同时给出低 K/低衰减脚本以平衡吞吐与判别力。
+- **公式与管线（变更）**：
+  - **能量正则**：CLI 默认 `energy_reg_target=absolute`、`scope=last`，保留 normalized/margin/rank 作为对照；`_compute_energy_regularizer` 支持 margin/排名目标。
+  - **指标与监控**：测试期新增 AUROC/AUPRC、coverage-risk（AURC + risk@{0.8,0.9,0.95}）与正确/错误能量分位，写入 `metrics_epoch.csv`、`energy_epoch.csv`（test 行）、`test_summary.json`、`energy_error_correlation.json`（含 coverage 曲线子采样）。guard/watch 支持 std/p90/mean 上下界并记录触发原因。
+  - **实验脚本**：新增 SNLI/SST-2 “absolute + λ=1e-4 + K=1” 快速脚本（保存至 `result/1_1_0`），扫参轴建议 K∈{1,2}、η 衰减 `{0,0.5}`。
+- **实验记录**：代码/脚本已落地，等待运行 SNLI 与 Noisy SST-2 的 K=1+absolute sanity，对比 normalized 基线后回填表格。
+- **修改与改进点**：
+  1. 训练/评估：`fif_mvp/train/loop.py` 增加 AUROC/AUPRC/coverage-risk/分位输出，`test_summary.json` 与 `energy_error_correlation.json` 覆盖新字段；`energy_epoch.csv` test 行附带能量-错误指标。
+  2. 度量函数：`fif_mvp/train/metrics.py` 新增安全版 AUROC/AUPRC、coverage-risk 计算与正确/错误能量分位。
+  3. 监控与配置：`fif_mvp/config.py` 扩展 guard/watch 上下界字段，`fif_mvp/cli/run_experiment.py` 支持 `std_high/p90_high/mean_low/mean_high/up/max_weight` 等解析，Trainer guard 支持 λ 上/下调并记录告警。
+  4. 工具与脚本：`scripts/snli_hybrid_k1_absolute.sh`、`scripts/sst2_noisy_hybrid_k1_absolute.sh`（K=1、absolute 快速对照，默认保存 `result/1_1_0`）；`scripts/summarize_results.py` 聚合新指标并接受自定义结果根目录。
+  5. 文档：更新 `WORK_BOARD.md`、`docs/experiment_design.md`、`docs/v1_1_0_energy_rework_plan.md`，README 补充 guard/watch 上下界与新产物字段。

@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch import nn
+from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -144,7 +145,7 @@ class Trainer:
                     }
                 )
 
-                self._maybe_backoff_energy_reg(train_metrics["energy_std"], epoch=epoch)
+                self._maybe_adjust_energy_reg(train_metrics, epoch=epoch)
 
                 if global_step >= total_steps:
                     break
@@ -175,6 +176,14 @@ class Trainer:
                 "energy_p90": test_metrics["energy_p90"],
                 "energy_alert": int(test_alert),
                 "energy_reg_weight": self.energy_reg_weight,
+                "energy_auroc": test_metrics.get("energy_auroc"),
+                "energy_auprc": test_metrics.get("energy_auprc"),
+                "coverage_aurc": test_metrics.get("coverage_aurc"),
+                "coverage_risk_at_80": test_metrics.get("coverage_risk_at_80"),
+                "coverage_risk_at_90": test_metrics.get("coverage_risk_at_90"),
+                "coverage_risk_at_95": test_metrics.get("coverage_risk_at_95"),
+                "energy_p90_correct": test_metrics.get("energy_p90_correct"),
+                "energy_p90_incorrect": test_metrics.get("energy_p90_incorrect"),
             }
         )
 
@@ -208,8 +217,9 @@ class Trainer:
         if hasattr(sampler, "set_epoch"):
             try:
                 sampler.set_epoch(epoch)
-            except Exception:
-                pass
+            except Exception as exc:
+                if self.rank == 0:
+                    self.logger.warning("Failed to set sampler epoch: %s", exc)
         progress = tqdm(
             loader, desc=f"epoch {epoch}", leave=False, disable=(self.rank != 0)
         )
@@ -251,7 +261,9 @@ class Trainer:
             if self.energy_reg_weight > 0.0:
                 energy_tensor = self._select_energy_for_regularization(outputs)
                 if energy_tensor.numel() > 0:
-                    reg = self._compute_energy_regularizer(energy_tensor)
+                    reg = self._compute_energy_regularizer(
+                        energy_tensor, outputs.logits, batch["labels"]
+                    )
                     loss = loss + self.energy_reg_weight * reg
             if not torch.isfinite(loss):
                 raise RuntimeError("Loss became non-finite.")
@@ -327,6 +339,7 @@ class Trainer:
             "f1": macro_f1,
             "ece": ece,
             "energy": energy_mean,
+            "energy_mean": energy_mean,
             "energy_log": energy_log_mean,
             "energy_std": float(np.std(energy_array)) if energy_array.size else 0.0,
             "energy_p90": float(np.percentile(energy_array, 90))
@@ -345,50 +358,191 @@ class Trainer:
             energy = outputs.energy_components[-1]
         return energy
 
-    def _compute_energy_regularizer(self, energy_tensor: torch.Tensor) -> torch.Tensor:
+    def _compute_energy_regularizer(
+        self,
+        energy_tensor: torch.Tensor,
+        logits: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         eps = 1e-12
         clamped = energy_tensor.clamp_min(0.0)
-        if self.config.energy_reg_mode == "absolute":
-            return torch.log1p(clamped).mean()
         log_vals = torch.log1p(clamped + eps)
-        centered = log_vals - log_vals.mean()
-        return centered.pow(2).mean()
+        target = getattr(self.config, "energy_reg_target", None) or getattr(
+            self.config, "energy_reg_mode", "absolute"
+        )
 
-    def _maybe_backoff_energy_reg(self, energy_std: float, epoch: int) -> None:
+        if target == "normalized":
+            centered = log_vals - log_vals.mean()
+            return centered.pow(2).mean()
+
+        if target == "margin":
+            if logits is None or labels is None:
+                return log_vals.mean()
+            with torch.no_grad():
+                labels = labels.view(-1, 1)
+                correct = torch.gather(logits, 1, labels).squeeze(-1)
+                k_val = min(2, logits.size(-1))
+                top_vals, top_idx = torch.topk(logits, k=k_val, dim=-1)
+                if logits.size(-1) > 1 and k_val == 2:
+                    is_label_top1 = top_idx[:, 0] == labels.squeeze(-1)
+                    second = torch.where(is_label_top1, top_vals[:, 1], top_vals[:, 0])
+                else:
+                    second = torch.zeros_like(correct)
+                margin = correct - second
+                difficulty = -margin
+                z_diff = (difficulty - difficulty.mean()) / (
+                    difficulty.std(unbiased=False) + eps
+                )
+            z_energy = (log_vals - log_vals.mean()) / (
+                log_vals.std(unbiased=False) + eps
+            )
+            return (z_energy - z_diff).pow(2).mean()
+
+        if target == "rank":
+            if logits is None or labels is None or log_vals.numel() < 2:
+                return log_vals.mean()
+            with torch.no_grad():
+                labels = labels.view(-1, 1)
+                correct = torch.gather(logits, 1, labels).squeeze(-1)
+                k_val = min(2, logits.size(-1))
+                top_vals, top_idx = torch.topk(logits, k=k_val, dim=-1)
+                if logits.size(-1) > 1 and k_val == 2:
+                    is_label_top1 = top_idx[:, 0] == labels.squeeze(-1)
+                    second = torch.where(is_label_top1, top_vals[:, 1], top_vals[:, 0])
+                else:
+                    second = torch.zeros_like(correct)
+                difficulty = -(correct - second)
+                # sample pairwise comparisons to avoid O(n^2) blow-up
+                n = log_vals.size(0)
+                max_pairs = min(1024, n * (n - 1) // 2)
+                idx_i = torch.randint(0, n, (max_pairs,), device=log_vals.device)
+                idx_j = torch.randint(0, n, (max_pairs,), device=log_vals.device)
+                keep = idx_i != idx_j
+                if keep.sum() == 0:
+                    return log_vals.mean()
+                idx_i = idx_i[keep]
+                idx_j = idx_j[keep]
+                diff_diff = difficulty[idx_i] - difficulty[idx_j]
+                sign = torch.sign(diff_diff)
+                non_zero = sign != 0
+                if non_zero.sum() == 0:
+                    return log_vals.mean()
+                sign = sign[non_zero]
+                idx_i = idx_i[non_zero]
+                idx_j = idx_j[non_zero]
+            diff_energy = log_vals[idx_i] - log_vals[idx_j]
+            # Encourage energies to follow difficulty ordering: harder (higher difficulty) -> larger energy
+            return F.softplus(-diff_energy * sign).mean()
+
+        # default absolute (scale control only)
+        return log_vals.mean()
+
+    def _maybe_adjust_energy_reg(self, metrics: Dict[str, float], epoch: int) -> None:
         guard = getattr(self.config, "energy_guard", None)
         if guard is None or self.energy_reg_weight <= 0.0:
             return
-        threshold = getattr(guard, "std_threshold", 0.0) or 0.0
-        if threshold <= 0.0 or energy_std >= threshold:
-            return
+        std_val = metrics.get("energy_std", 0.0)
+        p90_val = metrics.get("energy_p90", 0.0)
+        factor_down = getattr(guard, "factor", 0.5)
+        if not (0.0 < factor_down < 1.0):
+            factor_down = 0.5
+        factor_up = getattr(guard, "increase_factor", 1.0)
+        if factor_up <= 1.0:
+            factor_up = 1.0
+        std_low = getattr(guard, "std_threshold", 0.0) or 0.0
+        std_high = getattr(guard, "std_high_threshold", None)
+        p90_low = getattr(guard, "p90_low_threshold", None)
+        p90_high = getattr(guard, "p90_high_threshold", None)
         min_weight = max(getattr(guard, "min_weight", 0.0), 0.0)
-        if self.energy_reg_weight <= min_weight:
+        max_weight = getattr(guard, "max_weight", None)
+
+        new_weight = self.energy_reg_weight
+        reasons: List[Dict[str, Any]] = []
+
+        if std_low > 0.0 and std_val < std_low:
+            candidate = max(min_weight, new_weight * factor_down)
+            if candidate < new_weight:
+                reasons.append(
+                    {
+                        "metric": "std",
+                        "direction": "low",
+                        "value": float(std_val),
+                        "threshold": float(std_low),
+                    }
+                )
+                new_weight = candidate
+        if p90_low is not None and p90_low > 0.0 and p90_val < p90_low:
+            candidate = max(min_weight, new_weight * factor_down)
+            if candidate < new_weight:
+                reasons.append(
+                    {
+                        "metric": "p90",
+                        "direction": "low",
+                        "value": float(p90_val),
+                        "threshold": float(p90_low),
+                    }
+                )
+                new_weight = candidate
+
+        if factor_up > 1.0:
+            if std_high is not None and std_val > std_high:
+                candidate = new_weight * factor_up
+                if max_weight is not None:
+                    candidate = min(max_weight, candidate)
+                if candidate > new_weight:
+                    reasons.append(
+                        {
+                            "metric": "std",
+                            "direction": "high",
+                            "value": float(std_val),
+                            "threshold": float(std_high),
+                        }
+                    )
+                    new_weight = candidate
+            if p90_high is not None and p90_val > p90_high:
+                candidate = new_weight * factor_up
+                if max_weight is not None:
+                    candidate = min(max_weight, candidate)
+                if candidate > new_weight:
+                    reasons.append(
+                        {
+                            "metric": "p90",
+                            "direction": "high",
+                            "value": float(p90_val),
+                            "threshold": float(p90_high),
+                        }
+                    )
+                    new_weight = candidate
+
+        if max_weight is not None:
+            new_weight = min(max_weight, new_weight)
+
+        if not reasons or new_weight == self.energy_reg_weight:
             return
-        factor = getattr(guard, "factor", 0.5)
-        if not (0.0 < factor < 1.0):
-            factor = 0.5
-        new_weight = max(min_weight, self.energy_reg_weight * factor)
-        if new_weight >= self.energy_reg_weight:
-            return
+
         prev = self.energy_reg_weight
         self.energy_reg_weight = new_weight
         if self.rank == 0:
+            direction = "adjusting"
             self.logger.warning(
-                "energy_std=%.4f below guard %.4f -> lowering λ from %.2e to %.2e (epoch=%s)",
-                energy_std,
-                threshold,
+                "guard %s -> λ: %.2e -> %.2e (epoch=%s, reasons=%s)",
+                direction,
                 prev,
                 new_weight,
                 epoch,
+                ";".join(f"{r['metric']}({r['direction']})" for r in reasons),
             )
         self._record_alert(
             {
-                "type": "guard_backoff",
+                "type": "guard_adjust",
                 "epoch": epoch,
-                "energy_std": energy_std,
-                "threshold": threshold,
                 "prev_weight": prev,
                 "new_weight": new_weight,
+                "reasons": reasons,
+                "min_weight": min_weight,
+                "max_weight": max_weight,
+                "factor_down": factor_down,
+                "factor_up": factor_up,
             }
         )
 
@@ -409,6 +563,10 @@ class Trainer:
         ):
             triggered = True
             reasons.append(f"std<{std_threshold}")
+        std_high = getattr(watch, "std_high_threshold", None)
+        if std_high is not None and std_high > 0 and energy_std > std_high:
+            triggered = True
+            reasons.append(f"std>{std_high}")
         energy_p90 = metrics.get("energy_p90", 0.0)
         p90_threshold = getattr(watch, "p90_threshold", None)
         if (
@@ -418,6 +576,19 @@ class Trainer:
         ):
             triggered = True
             reasons.append(f"p90<{p90_threshold}")
+        p90_high = getattr(watch, "p90_high_threshold", None)
+        if p90_high is not None and p90_high > 0 and energy_p90 > p90_high:
+            triggered = True
+            reasons.append(f"p90>{p90_high}")
+        energy_mean = metrics.get("energy_mean", metrics.get("energy", 0.0))
+        mean_low = getattr(watch, "mean_low_threshold", None)
+        if mean_low is not None and mean_low > 0 and energy_mean < mean_low:
+            triggered = True
+            reasons.append(f"mean<{mean_low}")
+        mean_high = getattr(watch, "mean_high_threshold", None)
+        if mean_high is not None and mean_high > 0 and energy_mean > mean_high:
+            triggered = True
+            reasons.append(f"mean>{mean_high}")
         if triggered:
             self._record_alert(
                 {
@@ -426,6 +597,7 @@ class Trainer:
                     "epoch": epoch,
                     "energy_std": energy_std,
                     "energy_p90": energy_p90,
+                    "energy_mean": energy_mean,
                     "reasons": reasons,
                 }
             )
@@ -439,11 +611,22 @@ class Trainer:
         guard = getattr(self.config, "energy_guard", None)
         if guard is None:
             return {}
-        return {
+        payload = {
             "std_threshold": getattr(guard, "std_threshold", 0.0) or 0.0,
             "factor": getattr(guard, "factor", 0.0),
             "min_weight": getattr(guard, "min_weight", 0.0),
         }
+        if getattr(guard, "std_high_threshold", None) is not None:
+            payload["std_high_threshold"] = getattr(guard, "std_high_threshold")
+        if getattr(guard, "p90_low_threshold", None) is not None:
+            payload["p90_low_threshold"] = getattr(guard, "p90_low_threshold")
+        if getattr(guard, "p90_high_threshold", None) is not None:
+            payload["p90_high_threshold"] = getattr(guard, "p90_high_threshold")
+        if getattr(guard, "max_weight", None) is not None:
+            payload["max_weight"] = getattr(guard, "max_weight")
+        if getattr(guard, "increase_factor", None) is not None:
+            payload["increase_factor"] = getattr(guard, "increase_factor")
+        return payload
 
     def _watch_config_dict(self) -> Dict[str, float]:
         watch = getattr(self.config, "energy_watch", None)
@@ -452,8 +635,16 @@ class Trainer:
         payload: Dict[str, float] = {}
         if getattr(watch, "std_threshold", None):
             payload["std_threshold"] = getattr(watch, "std_threshold")
+        if getattr(watch, "std_high_threshold", None):
+            payload["std_high_threshold"] = getattr(watch, "std_high_threshold")
         if getattr(watch, "p90_threshold", None):
             payload["p90_threshold"] = getattr(watch, "p90_threshold")
+        if getattr(watch, "p90_high_threshold", None):
+            payload["p90_high_threshold"] = getattr(watch, "p90_high_threshold")
+        if getattr(watch, "mean_low_threshold", None):
+            payload["mean_low_threshold"] = getattr(watch, "mean_low_threshold")
+        if getattr(watch, "mean_high_threshold", None):
+            payload["mean_high_threshold"] = getattr(watch, "mean_high_threshold")
         return payload
 
     def _write_alerts_file(self) -> None:
@@ -567,8 +758,53 @@ class Trainer:
                 pearson_r = 0.0
             else:
                 pearson_r = float(np.corrcoef(errors, energies_np)[0, 1])
+            auroc = metrics_lib.safe_roc_auc(errors, energies_np)
+            auprc = metrics_lib.safe_average_precision(errors, energies_np)
+            coverage = metrics_lib.coverage_risk(errors, energies_np)
+            quantiles = metrics_lib.split_energy_quantiles(errors, energies_np)
+            coverage_curve = []
+            cov_arr = coverage.get("coverages")
+            risk_arr = coverage.get("risks")
+            if cov_arr is not None and risk_arr is not None and len(cov_arr) > 0:
+                cov_arr = coverage["coverages"]
+                risk_arr = coverage["risks"]
+                max_points = 200
+                if cov_arr.shape[0] <= max_points:
+                    idx = range(cov_arr.shape[0])
+                else:
+                    idx = np.linspace(
+                        0, cov_arr.shape[0] - 1, num=max_points, dtype=int
+                    )
+                coverage_curve = [
+                    {"coverage": float(cov_arr[i]), "risk": float(risk_arr[i])}
+                    for i in idx
+                ]
+            metrics.update(
+                {
+                    "energy_auroc": auroc,
+                    "energy_auprc": auprc,
+                    "coverage_aurc": coverage.get("aurc", 0.0),
+                    "coverage_risk_at_80": coverage.get("risk_at", {}).get(0.8, 0.0),
+                    "coverage_risk_at_90": coverage.get("risk_at", {}).get(0.9, 0.0),
+                    "coverage_risk_at_95": coverage.get("risk_at", {}).get(0.95, 0.0),
+                    "energy_p50_correct": quantiles["correct"]["p50"],
+                    "energy_p90_correct": quantiles["correct"]["p90"],
+                    "energy_p99_correct": quantiles["correct"]["p99"],
+                    "energy_p50_incorrect": quantiles["incorrect"]["p50"],
+                    "energy_p90_incorrect": quantiles["incorrect"]["p90"],
+                    "energy_p99_incorrect": quantiles["incorrect"]["p99"],
+                }
+            )
             payload = {
                 "pearson_r": pearson_r,
+                "auroc": auroc,
+                "auprc": auprc,
+                "aurc": coverage.get("aurc", 0.0),
+                "coverage_risk_at": {
+                    str(k): float(v) for k, v in coverage.get("risk_at", {}).items()
+                },
+                "coverage_curve": coverage_curve,
+                "quantiles": quantiles,
                 "n": int(len(errors)),
                 "notes": "computed on test set",
             }
@@ -609,6 +845,19 @@ class Trainer:
             "energy_mean_test": metrics["energy_mean"],
             "energy_log_mean_test": metrics["energy_log_mean"],
         }
+        optional_keys = [
+            "energy_auroc",
+            "energy_auprc",
+            "coverage_aurc",
+            "coverage_risk_at_80",
+            "coverage_risk_at_90",
+            "coverage_risk_at_95",
+            "energy_p90_correct",
+            "energy_p90_incorrect",
+        ]
+        for key in optional_keys:
+            if key in metrics:
+                summary[key] = metrics[key]
         with open(self.save_dir / "test_summary.json", "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)
 

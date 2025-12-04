@@ -6,7 +6,6 @@ Update: :math:`H^{t+1} = H^{t} - \\eta (L H^{t} - q)` where :math:`L` is the spa
 
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import List, Tuple
 
 import torch
@@ -41,28 +40,29 @@ class FrictionLayer(nn.Module):
         outputs = hidden.clone()
         energies = hidden.new_zeros(batch_size)
         lengths = attention_mask.sum(dim=1).to(torch.int64)
-        buckets: dict[int, List[int]] = defaultdict(list)
-        for idx, length in enumerate(lengths.tolist()):
-            buckets[int(length)].append(idx)
+        unique_lengths = torch.unique(lengths)
 
-        for length, indices in buckets.items():
+        for length_val in unique_lengths:
+            length = int(length_val.item())
             if length <= 1:
                 continue
-            seq_hidden = hidden[indices, :length].contiguous()
+            mask = lengths == length_val
+            indices = mask.nonzero(as_tuple=True)[0]
+            seq_hidden = hidden.index_select(0, indices)[:, :length].contiguous()
             if self.config.neighbor == "window":
                 edges = sparse_utils.build_window_edges(
                     length, radius=self.config.radius, device=hidden.device
                 )
                 seq_out, seq_energy = self._run_window_batch(seq_hidden, edges)
             else:
-                bucket_mask = attention_mask[indices, :length]
+                bucket_mask = attention_mask.index_select(0, indices)[:, :length]
                 edges = sparse_utils.build_knn_edges_batched(
                     seq_hidden, bucket_mask, k=self.config.k
                 )
                 seq_out, seq_energy = self._run_knn_batch(seq_hidden, edges)
 
-            outputs[indices, :length] = seq_out
-            energies[indices] = seq_energy
+            outputs.index_copy_(0, indices, seq_out)
+            energies.index_copy_(0, indices, seq_energy)
 
         return outputs, energies
 

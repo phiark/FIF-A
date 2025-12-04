@@ -3,7 +3,7 @@
 ## 背景（当前机制与默认值）
 - 能量定义：`E = 0.5 Σ_{(i,j)} μ_ij ||h_i - h_j||^2`；`μ` 由 edge MLP 动态生成，`L_μ` 采用度归一化拉普拉斯（`fif_mvp/models/friction_layer.py`）。
 - 迭代：`state = state - η (L_μ state - q)`，K 步 + η 衰减 + 1D 平滑；`q_proj` 为可训练牵引项。
-- 正则：`_compute_energy_regularizer`（`fif_mvp/train/loop.py`）在 `mode=normalized` 时对 `log1p(E)` 做零均值方差惩罚；CLI 默认 `--energy_reg_mode normalized --energy_reg_scope last`。
+- 正则：`_compute_energy_regularizer`（`fif_mvp/train/loop.py`）现支持 `target ∈ {absolute, normalized, margin, rank}`，默认 `--energy_reg_target absolute --energy_reg_scope last`；`--energy_reg_mode` 仅作为兼容别名。
 - 监控：`energy_guard` 仅在 `energy_std < threshold` 时下调 λ，本质上强化“能量集中”。`energy_watch` 以 std/p90 做告警（写入 `alerts.json`）。
 
 ## 诊断（为何 normalized 与“能量=置信度”冲突）
@@ -43,3 +43,9 @@
 - 训练时间：新指标（AUROC/coverage）需要额外一次前向/统计，但可在测试期计算，开销可控。
 - 模式交互：若 margin/排名损失过强，可能与 CE 竞争导致过拟合或能量爆炸，需要 λ 网格与 guard 上下界双向控制。
 - 结构改动（跨句边/kNN）可能影响吞吐，需在小规模子集验证后再大规模跑。
+
+## 当前落地
+- 默认 `energy_reg_target=absolute`，保留 margin/rank 作为可选 A/B，`energy_reg_mode` 兼容旧版。
+- 测试期输出新增指标：`energy_auroc/energy_auprc`、coverage‑risk（`coverage_aurc`、`coverage_risk_at_{80,90,95}`）、正确/错误分位写入 `test_summary.json` 与 `energy_error_correlation.json`（含 coverage 曲线子采样）。
+- guard/watch 支持能量上下界：`std_low/std_high/p90_low/p90_high/mean_low/mean_high`，guard 允许 λ 上下调并在 `alerts.json` 记录原因。
+- 新脚本：`scripts/snli_hybrid_k1_absolute.sh`、`scripts/sst2_noisy_hybrid_k1_absolute.sh`（K=1、absolute λ=1e-4，保存至 `result/1_1_0`）；`scripts/summarize_results.py` 默认聚合该目录并带上新指标。

@@ -29,6 +29,11 @@ class EnergyGuardConfig:
     std_threshold: float = 0.1
     factor: float = 0.5
     min_weight: float = 0.0
+    std_high_threshold: float | None = None
+    p90_low_threshold: float | None = None
+    p90_high_threshold: float | None = None
+    max_weight: float | None = None
+    increase_factor: float = 1.0
 
 
 @dataclass
@@ -36,7 +41,11 @@ class EnergyWatchConfig:
     """Run-time monitoring thresholds for energy statistics."""
 
     std_threshold: float | None = None
+    std_high_threshold: float | None = None
     p90_threshold: float | None = None
+    p90_high_threshold: float | None = None
+    mean_low_threshold: float | None = None
+    mean_high_threshold: float | None = None
 
 
 @dataclass
@@ -76,7 +85,9 @@ class ExperimentConfig:
     train_noise_levels: List[str] = field(default_factory=list)
     energy_reg_weight: float = 0.0
     energy_reg_scope: Literal["all", "last"] = "all"
-    energy_reg_mode: Literal["absolute", "normalized"] = "absolute"
+    energy_reg_target: Literal["absolute", "normalized", "margin", "rank"] = "absolute"
+    # Deprecated alias retained for backward compatibility; prefer energy_reg_target.
+    energy_reg_mode: Literal["absolute", "normalized", "margin", "rank"] = "absolute"
     energy_guard: EnergyGuardConfig = field(default_factory=EnergyGuardConfig)
     energy_watch: EnergyWatchConfig = field(default_factory=EnergyWatchConfig)
     # Acceleration options

@@ -2,17 +2,16 @@
 
 本工作板旨在跟踪面向论文级实验的版本演进，可随项目增长扩展任务列表。
 
-## 下一个版本（1.0.3）概述
-- **版本号**：1.0.3（v1.0.2 之后的重构与升级版）
-- **为什么需要修改 1.0.2**：
-  - SNLI & SST-2 Hybrid 仍存在能量塌缩（`energy_std ≈ 0.02`）与弱相关性，无法支撑“能量≈置信度”假说。
-  - Hybrid 训练 walltime 较 Baseline 高 10×（`docs/reports/v1_0_2_results.md` §2/§4），主要来自批量 kNN 和缺乏 K 预热。
-  - 监控手段缺失，无法在训练期及时发现能量问题，CLI 也未暴露新的调参旋钮。
-- **我们为何要做 1.0.3**：恢复 Hybrid 的能量判别力，同时将吞吐性能和监控体系纳入论文级实验要求，为 v1.0.3 数据点提供可信鲁棒性对照。
+## 下一个版本（1.1.0）概述
+- **版本号**：1.1.0（基于 v1.0.4 的能量正则重构）
+- **为什么需要修改 1.0.4**：
+  - 当前 `mode=normalized` 将 batch 内 `log1p(E)` 拉平，弱化“能量=置信度”，SNLI 相关性接近 0（见 `docs/v1_1_0_energy_rework_plan.md`）。
+  - guard/watch 仅有下界，实质鼓励能量集中；监控指标缺少 AUROC/coverage-risk，无法评估拒判能力。
+  - 结构/超参（K=3、强 η 衰减）可能过度低通，未有轻量脚本验证。
 - **版本目标**：
-  1. 默认 `scope=last + mode=normalized` 并扫描 λ，确保 `energy_std_test ≥ 0.15` 且 `pearson_r ≥ 0.1`。
-  2. 通过 `recompute_mu=True` + K 预热 + 向量化 kNN 把 Hybrid walltime 降到 <3k 秒。
-  3. 在训练循环中加入能量阈值告警与动态 λ，CLI/README 反映新的开关。
+  1. 重设能量正则默认为 `absolute`，新增 margin/排名目标与 CLI 开关，使能量与分类难度绑定。
+  2. 扩充能量-错误指标（AUROC/AUPRC、coverage-risk、分组分位），guard/watch 改为上下界阈值。
+  3. 提供低 K/低衰减的对照脚本（SNLI/SST-2）验证能量判别力与吞吐折中。
 
 ## 任务板标准
 - **列定义**：`Backlog`（未启动）、`In Progress`、`Blocked`、`Review`、`Done`。
@@ -62,3 +61,12 @@
 | T-022 | 运行级回归：基于新构图跑 SNLI/SST-2，并将实验指标写入 `docs/reports/` | Codex | In Progress | 1.0.4 | `docs/reports/v1_0_4_experiment_report.md` 已建立模板，脚本输出指向 `result/1_0_4/`，待回填结果 |
 | T-025 | 结果汇总与验真工具：扫描 `result/1_0_4` 聚合 `test_summary/timing` | Codex | Done | 1.0.4 | `scripts/summarize_results.py` |
 | T-023 | Legacy / CI 清理：迁移 `fif_simple/` 至 archive、补齐静态检查（ruff/pytest smoke） | Codex | Backlog | 1.0.4 | 需新增 `tox.ini` + GitHub Actions（规划中） |
+
+## v1.1.0 活动任务
+| ID | 描述 | 负责人 | 状态 | 目标版本 | 关联输出/备注 |
+| --- | --- | --- | --- | --- | --- |
+| T-026 | 能量正则目标重构：默认改为 absolute，新增 margin/排名目标与 CLI 开关，重写 `_compute_energy_regularizer` | Codex | Done | 1.1.0 | `fif_mvp/train/loop.py`, `fif_mvp/cli/run_experiment.py`, `fif_mvp/config.py` |
+| T-027 | 能量-错误指标扩展：AUROC/AUPRC、coverage-risk、正确/错误分组分位写入 `energy_error_correlation.json` | Codex | Done | 1.1.0 | `fif_mvp/train/loop.py`, `fif_mvp/train/metrics.py`, `scripts/summarize_results.py` |
+| T-028 | 监控/guard 升级：支持能量上下界阈值与告警，避免单向压缩 | Codex | Done | 1.1.0 | `fif_mvp/train/loop.py`, `fif_mvp/config.py`, `fif_mvp/cli/run_experiment.py`, `README.md` |
+| T-029 | 结构/超参对照：K∈{1,2} 与 η 衰减扫描，新增 SNLI/SST-2 “absolute+λ=1e-4+K=1” 快速脚本 | Codex | Done | 1.1.0 | `scripts/snli_hybrid_k1_absolute.sh`, `scripts/sst2_noisy_hybrid_k1_absolute.sh`（保存至 `result/1_1_0`） |
+| T-030 | 文档/报告同步：更新版本追踪与报告模板，记录新指标与实验矩阵 | Codex | Done | 1.1.0 | `PROJECT_TRACKER.md`, `docs/experiment_design.md`, `docs/v1_1_0_energy_rework_plan.md`, `docs/reports/v1_0_4_experiment_report.md` |

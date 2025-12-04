@@ -7,8 +7,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from datasets import DatasetDict, concatenate_datasets, load_dataset
 from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
 
+from .common import build_loaders_for_splits
 from .noise import (
     DEFAULT_NOISE_LEVELS,
     LEVEL_HASH,
@@ -112,38 +112,17 @@ def load_sst2(
     dataset = DatasetDict(processed_splits)
     dataset.set_format(type="python")
 
-    loader_kwargs = loader_kwargs or {}
-    # Remove None-valued kwargs to avoid TypeErrors on older PyTorch
-    loader_kwargs = {k: v for k, v in loader_kwargs.items() if v is not None}
-
-    loaders: Dict[str, DataLoader] = {}
-    for split in ("train", "validation", "test"):
-        shuffle = split == "train"
-        sampler = None
-        if distributed and split == "train":
-            sampler = DistributedSampler(
-                dataset[split],
-                num_replicas=world_size or 1,
-                rank=rank or 0,
-                shuffle=True,
-                drop_last=False,
-            )
-            shuffle = False
-        elif (not distributed) and sortish_batches and split == "train":
-            # Build sortish sampler from input length
-            lengths = [len(x) for x in dataset[split]["input_ids"]]
-            from . import SortishSampler  # local import to avoid cycles
-
-            sampler = SortishSampler(lengths, batch_size=batch_size, chunk_mult=sortish_chunk_mult)
-            shuffle = False
-        loaders[split] = DataLoader(
-            dataset[split],
-            batch_size=batch_size,
-            shuffle=shuffle,
-            sampler=sampler,
-            collate_fn=collate_fn,
-            **loader_kwargs,
-        )
+    loaders = build_loaders_for_splits(
+        dataset,
+        collate_fn=collate_fn,
+        batch_size=batch_size,
+        loader_kwargs=loader_kwargs,
+        distributed=distributed,
+        world_size=world_size,
+        rank=rank,
+        sortish_batches=sortish_batches,
+        sortish_chunk_mult=sortish_chunk_mult,
+    )
 
     return loaders, {
         "label_names": ["negative", "positive"],

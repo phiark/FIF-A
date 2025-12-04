@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os as _os
+import warnings
 
 _os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 import json
@@ -13,7 +14,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 import datasets
 import torch
@@ -126,17 +127,24 @@ def parse_args() -> argparse.Namespace:
         help="Use energies from all friction layers or only the last one when applying regularization (default: last).",
     )
     parser.add_argument(
+        "--energy_reg_target",
+        choices=["absolute", "normalized", "margin", "rank"],
+        default="absolute",
+        help="Energy regularization target: absolute (mean log1p), normalized (variance), margin alignment, or rank alignment (default: absolute).",
+    )
+    parser.add_argument(
         "--energy_reg_mode",
         choices=["absolute", "normalized"],
-        default="normalized",
-        help="absolute: penalize log1p(E); normalized: penalize squared deviation of log1p(E) from the batch mean (default).",
+        default=None,
+        help="Deprecated alias for --energy_reg_target (kept for backward compatibility).",
     )
     parser.add_argument(
         "--energy_guard",
         type=str,
         default=None,
         help=(
-            "Dynamic lambda guard thresholds, e.g. std=0.1,factor=0.5,min_weight=1e-5. "
+            "Dynamic lambda guard with lower/upper thresholds, e.g. std_low=0.1,std_high=5,"
+            "p90_low=0.5,p90_high=10,factor=0.5,up=1.2,min_weight=1e-5,max=1e-3. "
             "Use 'off' to disable."
         ),
     )
@@ -144,7 +152,10 @@ def parse_args() -> argparse.Namespace:
         "--energy_watch",
         type=str,
         default=None,
-        help="Energy monitoring thresholds, e.g. std=0.1,p90=0.5 (use 'off' to disable).",
+        help=(
+            "Energy monitoring thresholds (low/high), e.g. std=0.1,std_high=10,p90=0.5,p90_high=5,"
+            "mean_low=0.1 (use 'off' to disable)."
+        ),
     )
     parser.add_argument(
         "--save_dir", type=str, required=True, help="Must reside under ./result"
@@ -235,12 +246,28 @@ def _build_energy_guard(arg: str | None) -> EnergyGuardConfig:
             guard.std_threshold = float(
                 kv.get("std", kv.get("std_threshold", guard.std_threshold))
             )
+        if "std_low" in kv:
+            guard.std_threshold = float(kv["std_low"])
+        if "std_high" in kv or "std_upper" in kv:
+            guard.std_high_threshold = float(
+                kv.get("std_high", kv.get("std_upper", guard.std_high_threshold))
+            )
         if "factor" in kv or "scale" in kv:
             guard.factor = float(kv.get("factor", kv.get("scale", guard.factor)))
         if "min" in kv or "min_weight" in kv:
             guard.min_weight = float(
                 kv.get("min", kv.get("min_weight", guard.min_weight))
             )
+        if "p90_low" in kv:
+            guard.p90_low_threshold = float(kv["p90_low"])
+        if "p90_high" in kv or "p90_upper" in kv:
+            guard.p90_high_threshold = float(
+                kv.get("p90_high", kv.get("p90_upper", guard.p90_high_threshold))
+            )
+        if "max" in kv or "max_weight" in kv:
+            guard.max_weight = float(kv.get("max", kv.get("max_weight")))
+        if "up" in kv or "increase" in kv:
+            guard.increase_factor = float(kv.get("up", kv.get("increase")))
     except ValueError as exc:  # pragma: no cover - CLI validation
         raise ValueError(
             f"Invalid --energy_guard value: '{arg}'. Expected floats."
@@ -261,8 +288,16 @@ def _build_energy_watch(arg: str | None) -> EnergyWatchConfig:
     try:
         if "std" in kv or "std_threshold" in kv:
             watch.std_threshold = float(kv.get("std", kv.get("std_threshold")))  # type: ignore[arg-type]
+        if "std_high" in kv or "std_upper" in kv:
+            watch.std_high_threshold = float(kv.get("std_high", kv.get("std_upper")))  # type: ignore[arg-type]
         if "p90" in kv or "p90_threshold" in kv:
             watch.p90_threshold = float(kv.get("p90", kv.get("p90_threshold")))  # type: ignore[arg-type]
+        if "p90_high" in kv or "p90_upper" in kv:
+            watch.p90_high_threshold = float(kv.get("p90_high", kv.get("p90_upper")))  # type: ignore[arg-type]
+        if "mean_low" in kv:
+            watch.mean_low_threshold = float(kv["mean_low"])  # type: ignore[arg-type]
+        if "mean_high" in kv or "mean_upper" in kv:
+            watch.mean_high_threshold = float(kv.get("mean_high", kv.get("mean_upper")))  # type: ignore[arg-type]
     except ValueError as exc:  # pragma: no cover - CLI validation
         raise ValueError(
             f"Invalid --energy_watch value: '{arg}'. Expected floats."
@@ -320,37 +355,38 @@ def emit_warning(message: str) -> None:
     print(f"\n{banner}\nWARNING: {message}\n{banner}\n")
 
 
-def _run_cli(args: argparse.Namespace) -> None:
-    # Avoid tokenizer multiprocessing + DataLoader workers deadlock warnings
-    import os as _os
+def _parse_train_noise_levels(raw: str) -> List[str]:
+    levels = [level.strip() for level in raw.split(",") if level.strip()]
+    return levels or ["clean"]
 
-    _os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-    train_noise_levels = [
-        level.strip() for level in args.train_noise_levels.split(",") if level.strip()
-    ] or ["clean"]
-    guard_config = _build_energy_guard(args.energy_guard)
-    watch_config = _build_energy_watch(args.energy_watch)
-    import os
 
-    is_ddp = bool(os.environ.get("LOCAL_RANK") is not None)
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+def _initialize_device_choice() -> DeviceChoice:
     device_choice = choose_device()
     print(f"[Device] Preferred backend: {device_choice.description}")
     ready, error_msg = verify_device(device_choice)
-    if not ready:
-        emit_warning(
-            f"Failed to initialize {device_choice.description}. Error: {error_msg}. "
-            "Falling back to CPU execution."
-        )
-        device_choice = DeviceChoice(
-            device="cpu", description="CPU execution", brand="CPU", backend="CPU"
-        )
-    base_result = Path(args.save_dir).expanduser().resolve()
+    if ready:
+        return device_choice
+    emit_warning(
+        f"Failed to initialize {device_choice.description}. Error: {error_msg}. "
+        "Falling back to CPU execution."
+    )
+    return DeviceChoice(
+        device="cpu", description="CPU execution", brand="CPU", backend="CPU"
+    )
+
+
+def _ensure_save_root(save_dir: str) -> Path:
+    base_result = Path(save_dir).expanduser().resolve()
     expected_root = (Path.cwd() / "result").resolve()
     if expected_root not in base_result.parents and base_result != expected_root:
         raise ValueError("save_dir must be within ./result")
     base_result.mkdir(parents=True, exist_ok=True)
+    return base_result
 
+
+def _create_run_directory(
+    args: argparse.Namespace, base_result: Path, is_ddp: bool, local_rank: int
+) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_name_parts = [args.task]
     if args.task == "sst2_noisy" and args.noise_intensity:
@@ -372,8 +408,11 @@ def _run_cli(args: argparse.Namespace) -> None:
                     )
     else:
         run_dir.mkdir(parents=True, exist_ok=False)
+    return run_dir
 
-    friction = FrictionConfig(
+
+def _build_friction_config(args: argparse.Namespace) -> FrictionConfig:
+    return FrictionConfig(
         K=args.friction_K,
         eta=args.friction_eta,
         neighbor=args.friction_neighbor,
@@ -385,7 +424,10 @@ def _run_cli(args: argparse.Namespace) -> None:
         normalize_laplacian=getattr(args, "friction_normalize_laplacian", True),
         recompute_mu=getattr(args, "friction_recompute_mu", True),
     )
-    optim = OptimizationConfig(
+
+
+def _build_optim_config(args: argparse.Namespace) -> OptimizationConfig:
+    return OptimizationConfig(
         lr=args.lr,
         weight_decay=args.weight_decay,
         warmup_steps=args.warmup_steps,
@@ -393,7 +435,24 @@ def _run_cli(args: argparse.Namespace) -> None:
         epochs=args.epochs,
         grad_clip=args.grad_clip,
     )
-    config = ExperimentConfig(
+
+
+def _build_experiment_config(
+    args: argparse.Namespace,
+    device_choice: DeviceChoice,
+    guard_config: EnergyGuardConfig,
+    watch_config: EnergyWatchConfig,
+    train_noise_levels: List[str],
+) -> ExperimentConfig:
+    friction = _build_friction_config(args)
+    optim = _build_optim_config(args)
+    energy_reg_target = args.energy_reg_target
+    if args.energy_reg_mode is not None:
+        print(
+            f"[warn] --energy_reg_mode is deprecated; using its value '{args.energy_reg_mode}' as energy_reg_target."
+        )
+        energy_reg_target = args.energy_reg_mode
+    return ExperimentConfig(
         task=args.task,
         model_type=args.model,
         hidden_size=args.hidden,
@@ -413,14 +472,16 @@ def _run_cli(args: argparse.Namespace) -> None:
         noise_vocab=train_noise_levels,
         energy_reg_weight=args.energy_reg_weight,
         energy_reg_scope=args.energy_reg_scope,
-        energy_reg_mode=args.energy_reg_mode,
+        energy_reg_target=energy_reg_target,
+        energy_reg_mode=energy_reg_target,
         energy_guard=guard_config,
         energy_watch=watch_config,
         use_amp=not args.no_amp,
         compile_model=args.compile,
     )
 
-    set_seed(config.seed)
+
+def _load_tokenizer_for_config(config: ExperimentConfig, tokenizer_name: str):
     try:
         tokenizer = AutoTokenizer.from_pretrained(config.tokenizer_name)
     except Exception as exc:  # pragma: no cover - network failure
@@ -430,52 +491,62 @@ def _run_cli(args: argparse.Namespace) -> None:
     if tokenizer.pad_token_id is None:
         tokenizer.add_special_tokens({"pad_token": "[PAD]"})
     config.vocab_size = len(tokenizer)
-    config.tokenizer_name = args.tokenizer
+    config.tokenizer_name = tokenizer_name
+    return tokenizer
 
-    # Tune CUDA backends when using NVIDIA GPUs
-    if device_choice.device == "cuda":
-        try:
-            # New-style TF32/matmul controls (avoid deprecated flags)
-            if torch.cuda.is_available():
-                major, _ = torch.cuda.get_device_capability(0)
-                if hasattr(torch.backends.cuda, "matmul") and hasattr(
-                    torch.backends.cuda.matmul, "fp32_precision"
-                ):
-                    torch.backends.cuda.matmul.fp32_precision = (
-                        "tf32" if major >= 8 else "ieee"
-                    )
-                if (
-                    hasattr(torch.backends, "cudnn")
-                    and hasattr(torch.backends.cudnn, "conv")
-                    and hasattr(torch.backends.cudnn.conv, "fp32_precision")
-                ):
-                    torch.backends.cudnn.conv.fp32_precision = (
-                        "tf32" if major >= 8 else "ieee"
-                    )
-            torch.backends.cudnn.benchmark = True
-            # Only set float32 matmul precision on Ampere+ to avoid warnings on V100
-            if hasattr(torch, "set_float32_matmul_precision") and major >= 8:
-                torch.set_float32_matmul_precision("high")
-        except Exception:
-            pass
 
-    # Determinism policy: default ON via set_seed; allow explicit opt-out
-    if args.deterministic is False:
-        try:
-            torch.use_deterministic_algorithms(False)
-            # Allow backend autotuning when not deterministic
-            torch.backends.cudnn.benchmark = True
-            torch.backends.cudnn.deterministic = False
-        except Exception:
-            pass
+def _configure_cuda_backends(device_choice: DeviceChoice) -> None:
+    if device_choice.device != "cuda":
+        return
+    major = 0
+    try:
+        if torch.cuda.is_available():
+            major, _ = torch.cuda.get_device_capability(0)
+            if hasattr(torch.backends.cuda, "matmul") and hasattr(
+                torch.backends.cuda.matmul, "fp32_precision"
+            ):
+                torch.backends.cuda.matmul.fp32_precision = (
+                    "tf32" if major >= 8 else "ieee"
+                )
+            if (
+                hasattr(torch.backends, "cudnn")
+                and hasattr(torch.backends.cudnn, "conv")
+                and hasattr(torch.backends.cudnn.conv, "fp32_precision")
+            ):
+                torch.backends.cudnn.conv.fp32_precision = (
+                    "tf32" if major >= 8 else "ieee"
+                )
+        torch.backends.cudnn.benchmark = True
+        if hasattr(torch, "set_float32_matmul_precision") and major >= 8:
+            torch.set_float32_matmul_precision("high")
+    except Exception as exc:  # pragma: no cover - defensive
+        warnings.warn(f"Failed to configure CUDA backend optimizations: {exc}")
 
-    # DDP distributed flags
+
+def _maybe_disable_determinism(flag: bool) -> None:
+    if not flag:
+        return
+    try:
+        torch.use_deterministic_algorithms(False)
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = False
+    except Exception as exc:  # pragma: no cover - defensive
+        warnings.warn(f"Failed to disable deterministic algorithms: {exc}")
+
+
+def _build_data_bundle(
+    args: argparse.Namespace,
+    config: ExperimentConfig,
+    tokenizer,
+    train_noise_levels: List[str],
+):
+    import os
+
     world_size = (
         int(os.environ.get("WORLD_SIZE", "1")) if "WORLD_SIZE" in os.environ else 1
     )
     rank_env = int(os.environ.get("RANK", "0")) if "RANK" in os.environ else 0
-
-    data_bundle = build_dataloaders(
+    bundle = build_dataloaders(
         task=config.task,
         tokenizer=tokenizer,
         batch_size=config.batch_size,
@@ -490,15 +561,50 @@ def _run_cli(args: argparse.Namespace) -> None:
         sortish_batches=args.sortish_batches,
         sortish_chunk_mult=args.sortish_chunk_mult,
     )
-    config.num_labels = data_bundle.num_labels
-    config.noise_vocab = data_bundle.noise_vocab
+    config.num_labels = bundle.num_labels
+    config.noise_vocab = bundle.noise_vocab
+    return bundle
 
-    if (not is_ddp) or int(os.environ.get("LOCAL_RANK", 0)) == 0:
-        save_config(run_dir / "config.json", config.to_dict())
-        write_env(run_dir / "env.txt", device_choice)
-        if data_bundle.noise_config:
-            save_json(run_dir / "noise_config.json", data_bundle.noise_config)
 
+def _maybe_save_metadata(
+    run_dir: Path, config: ExperimentConfig, device_choice: DeviceChoice, data_bundle
+) -> None:
+    import os
+
+    is_ddp = bool(os.environ.get("LOCAL_RANK") is not None)
+    if is_ddp and int(os.environ.get("LOCAL_RANK", 0)) != 0:
+        return
+    save_config(run_dir / "config.json", config.to_dict())
+    write_env(run_dir / "env.txt", device_choice)
+    if data_bundle.noise_config:
+        save_json(run_dir / "noise_config.json", data_bundle.noise_config)
+
+
+def _run_cli(args: argparse.Namespace) -> None:
+    # Avoid tokenizer multiprocessing + DataLoader workers deadlock warnings
+    import os as _os
+
+    _os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    train_noise_levels = _parse_train_noise_levels(args.train_noise_levels)
+    guard_config = _build_energy_guard(args.energy_guard)
+    watch_config = _build_energy_watch(args.energy_watch)
+    import os
+
+    is_ddp = bool(os.environ.get("LOCAL_RANK") is not None)
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    device_choice = _initialize_device_choice()
+    base_result = _ensure_save_root(args.save_dir)
+    run_dir = _create_run_directory(args, base_result, is_ddp, local_rank)
+    config = _build_experiment_config(
+        args, device_choice, guard_config, watch_config, train_noise_levels
+    )
+    set_seed(config.seed)
+    tokenizer = _load_tokenizer_for_config(config, args.tokenizer)
+    _configure_cuda_backends(device_choice)
+    if args.deterministic is False:
+        _maybe_disable_determinism(True)
+    data_bundle = _build_data_bundle(args, config, tokenizer, train_noise_levels)
+    _maybe_save_metadata(run_dir, config, device_choice, data_bundle)
     run_with_device(
         config=config,
         tokenizer=tokenizer,

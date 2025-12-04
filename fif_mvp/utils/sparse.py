@@ -7,13 +7,27 @@ where Python-side list building dominates time.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import Dict, List, Optional, Set, Tuple
 
 import torch
 from torch.nn import functional as F
 
-_WINDOW_CACHE: Dict[Tuple[int, int], torch.Tensor] = {}
-_WINDOW_CACHE_DEVICE: Dict[Tuple[int, int, str], torch.Tensor] = {}
+MAX_WINDOW_CACHE = 128
+_WINDOW_CACHE: "OrderedDict[Tuple[int, int], torch.Tensor]" = OrderedDict()
+_WINDOW_CACHE_DEVICE: "OrderedDict[Tuple[int, int, str], torch.Tensor]" = OrderedDict()
+
+
+def clear_window_cache() -> None:
+    """Clear all cached window edges (used for tests or memory pressure)."""
+
+    _WINDOW_CACHE.clear()
+    _WINDOW_CACHE_DEVICE.clear()
+
+
+def _prune_cache(cache: OrderedDict, max_size: int) -> None:
+    while len(cache) > max_size:
+        cache.popitem(last=False)
 
 
 def build_window_edges(
@@ -44,6 +58,8 @@ def build_window_edges(
         else:
             cached = torch.tensor(edges, dtype=torch.long)
         _WINDOW_CACHE[key] = cached
+        _WINDOW_CACHE.move_to_end(key)
+        _prune_cache(_WINDOW_CACHE, MAX_WINDOW_CACHE)
     if device is None or str(device) == "cpu":
         return cached
     key_dev = (length, radius, str(device))
@@ -51,6 +67,8 @@ def build_window_edges(
     if dev_cached is None or dev_cached.device != device:
         dev_cached = cached.to(device, non_blocking=(device.type == "cuda"))
         _WINDOW_CACHE_DEVICE[key_dev] = dev_cached
+        _WINDOW_CACHE_DEVICE.move_to_end(key_dev)
+        _prune_cache(_WINDOW_CACHE_DEVICE, MAX_WINDOW_CACHE)
     return dev_cached
 
 

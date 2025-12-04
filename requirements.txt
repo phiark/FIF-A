@@ -1,7 +1,8 @@
-torch>=2.2
-numpy>=1.26
-pandas>=2.2
-tqdm>=4.66
-scikit-learn>=1.5
-datasets>=2.20
-transformers>=4.44
+torch>=2.2,<2.3
+numpy>=1.26,<2.0
+pandas>=2.2,<2.3
+tqdm>=4.66,<5.0
+scikit-learn>=1.5,<1.6
+datasets>=2.20,<2.21
+transformers>=4.44,<4.45
+pytest>=7.4,<8.0

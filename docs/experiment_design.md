@@ -20,8 +20,8 @@
   - 步长 `η_t = η ⋅ decay^t`，默认 `decay=0.5`。
 - **能量正则**：训练损失 `L = CE + λ ⋅ \phi(E_batch)`，其中 `φ` 可选：
   - `--energy_reg_scope {all,last}` 决定取全部摩擦层能量（默认）或仅取最后一层能量；
-  - `--energy_reg_mode {absolute,normalized}` 选择直接惩罚 `log1p(E)` 还是惩罚 Batch 内 `log1p(E)` 相对均值的平方，避免能量塌缩；
-  - λ 依旧通过 CLI 控制。
+  - `--energy_reg_target {absolute,normalized,margin,rank}` 控制正则目标：`absolute` 直接惩罚 `log1p(E)`（默认），`normalized` 惩罚 batch 内方差，`margin`/`rank` 让能量与分类难度对齐；`--energy_reg_mode` 为兼容旧版的别名；
+  - 默认 `--energy_reg_scope last`、`--energy_reg_target absolute`，可选 normalized/margin/rank 作为对照；λ 依旧通过 CLI 控制。
 - **能量指标**：记录 `energy_mean/log_mean/std/p90`，写入 `metrics_epoch.csv`、`energy_epoch.csv` 以及 `test_summary.json`（均值/对数均值）。
 
 ## 4. 实验矩阵
@@ -32,8 +32,8 @@
 | v1.0.0-C | Hybrid | clean+low+med+high | low/med/high | 5e-4 | 能量正则敏感性 |
 
 ## 5. 指标与产物
-- 指标：`acc`, `macro_f1`, `loss`, `ece`, `energy_mean_test`, `energy_log_mean_test`, `energy-error 皮尔逊相关`.
-- 产物：`metrics_epoch.csv`, `energy_epoch.csv`（含 log）、`confusion_matrix.csv`, `energy_error_correlation.json`, per-sample 能量可选导出。
+- 指标：`acc`, `macro_f1`, `loss`, `ece`, `energy_mean_test`, `energy_log_mean_test`，能量‑错误相关指标（`pearson_r`、`energy_auroc`、`energy_auprc`、`coverage_aurc`、`coverage_risk_at_{80,90,95}`），以及正确/错误样本的 `energy_p50/p90/p99`。
+- 产物：`metrics_epoch.csv`, `energy_epoch.csv`（含 log）、`confusion_matrix.csv`, `energy_error_correlation.json`（含 coverage‑risk 曲线与分位统计）、per-sample 能量（可选导出）。
 
 ## 6. 验证步骤
 0. 多 GPU 节点统一通过 CLI `--ddp --nproc_per_node=<gpu_count>`（或脚本自动侦测）启用单机 DDP，禁止 DataParallel 造成的标量 gather 同步瓶颈。
@@ -43,7 +43,7 @@
 
 ## 7. v1.0.3 扩展实验（规划）
 - **配置新增**：
-  - 默认 `--energy_reg_scope last`、`--energy_reg_mode normalized`，λ 扫描 `{1e-5, 5e-5}` 并在训练中基于 `energy_std` 阈值（0.1）动态降权。
+  - 默认 `--energy_reg_scope last`、`--energy_reg_target normalized`（旧脚本可用 `--energy_reg_mode` 等价），λ 扫描 `{1e-5, 5e-5}` 并在训练中基于 `energy_std` 阈值（0.1）动态降权。
   - `--friction.recompute_mu` 默认开启，并提供 `--friction.k_warmup_epochs`（SNLI=2、SST-2=1）先用 K=1 预热。
   - `--friction.knn_mode` 提供 `per_sample` 向量化路径且允许 `--friction.graph_cache_size` 以摊薄构图成本。
   - `--energy_watch std=0.1,p90=0.5` 触发实时告警，结果写入 `alerts.json`。
@@ -56,3 +56,10 @@
 | v1.0.3-C | Hybrid | SST-2 noisy low/med/high | 同上，但低噪声 λ=1e-5、med/high λ=5e-5 | 1 epoch 预热 | `Δacc ≥ 0`、`ece` 不劣于 baseline |
 
 - **输出**：完成后撰写 `docs/reports/v1_0_3_results.md` 并在 `PROJECT_TRACKER.md` / `WORK_BOARD.md` 标记任务状态。
+
+## 8. v1.1.0 能量重构要点（当前默认）
+- 目标：以 `absolute` 为默认能量正则，并引入 margin/rank 作为可选 A/B；能量监控改为上下界带告警。
+- 新指标：测试阶段输出 `energy_auroc/energy_auprc/coverage_aurc/coverage_risk_at_{80,90,95}`，并在 `energy_error_correlation.json` 记录 coverage‑risk 子采样曲线与正确/错误能量分位。
+- 监控：`energy_guard` 支持 `std_low/std_high/p90_low/p90_high` 与 λ 的上/下调（`factor` 与 `up`），`energy_watch` 支持 mean/std/p90 上下界并写入 `alerts.json`。
+- 脚本：新增 `scripts/snli_hybrid_k1_absolute.sh`、`scripts/sst2_noisy_hybrid_k1_absolute.sh`（默认保存至 `result/1_1_0`），用于 K=1、`target=absolute` 的快速 sanity。
+- 汇总：`scripts/summarize_results.py` 默认扫描 `result/1_1_0`，可传根目录参数以聚合旧版本。
