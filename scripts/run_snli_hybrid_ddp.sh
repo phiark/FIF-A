@@ -2,19 +2,18 @@
 set -euo pipefail
 
 SEED=42
-GPUS=${GPUS:-2}
+GPUS=${GPUS:-1}
 
 torchrun --standalone --nproc_per_node=${GPUS} \
   -m fif_mvp.cli.run_experiment \
-  --task snli \
-  --model hybrid \
-  --epochs 5 \
-  --batch_size 256 \
-  --lr 3e-4 \
-  --seed "${SEED}" \
-  --friction.K 1 \
-  --friction.radius 2 \
-  --friction.neighbor window \
-  --workers 4 \
+  --task snli 
+  --model hybrid 
+  --epochs 1 
+  --batch_size 1024 
+  --lr 3e-4 
+  --seed "${SEED}" 
+  --friction.K 1 
+  --friction.radius 2 
+  --friction.neighbor window 
+  --workers -1 
   --save_dir ./result
-

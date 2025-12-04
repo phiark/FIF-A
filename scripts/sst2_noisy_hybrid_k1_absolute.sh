@@ -25,7 +25,7 @@ for intensity in "${INTENSITIES[@]}"; do
     --task sst2_noisy \
     --model hybrid \
     --epochs 3 \
-    --batch_size 256 \
+    --batch_size 1024 \
     --lr 3e-4 \
     --seed "${SEED}" \
     --sortish_batches \

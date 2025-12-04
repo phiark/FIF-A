@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SEED=42
-GPUS=${GPUS:-2}
+GPUS=${GPUS:-1}
 INTENSITIES=(low med high)
 
 for intensity in "${INTENSITIES[@]}"; do
@@ -10,8 +10,8 @@ for intensity in "${INTENSITIES[@]}"; do
     -m fif_mvp.cli.run_experiment \
     --task sst2_noisy \
     --model hybrid \
-    --epochs 5 \
-    --batch_size 256 \
+    --epochs 3 \
+    --batch_size 1024 \
     --lr 3e-4 \
     --seed "${SEED}" \
     --energy_reg_weight 1e-4 \
@@ -19,7 +19,6 @@ for intensity in "${INTENSITIES[@]}"; do
     --friction.K 1 \
     --friction.radius 2 \
     --friction.neighbor window \
-    --workers 4 \
+    --workers -1 \
     --save_dir ./result
 done
-

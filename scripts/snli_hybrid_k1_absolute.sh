@@ -22,8 +22,8 @@ python -m fif_mvp.cli.run_experiment \
   "${DDP_ARGS[@]}" \
   --task snli \
   --model hybrid \
-  --epochs 3 \
-  --batch_size 256 \
+  --epochs 1 \
+  --batch_size 1024 \
   --lr 3e-4 \
   --seed "${SEED}" \
   --friction.K 1 \

@@ -25,14 +25,13 @@ for intensity in "${INTENSITIES[@]}"; do
     --task sst2_noisy \
     --model baseline \
     --epochs 3 \
-    --batch_size 512 \
+    --batch_size 1024 \
     --lr 3e-4 \
     --seed "${SEED}" \
     --sortish_batches \
     --energy_reg_weight 1e-4 \
-    --compile \
     --noise_intensity "${intensity}" \
     --no_deterministic \
-    --workers 12 \
+    --workers -1 \
     --save_dir ./result
 done

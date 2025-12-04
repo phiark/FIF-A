@@ -25,7 +25,7 @@ for intensity in "${INTENSITIES[@]}"; do
     --task sst2_noisy \
     --model hybrid \
     --epochs 3 \
-    --batch_size 512 \
+    --batch_size 1024 \
     --lr 3e-4 \
     --seed "${SEED}" \
     --sortish_batches \
@@ -39,7 +39,6 @@ for intensity in "${INTENSITIES[@]}"; do
     --friction.radius 2 \
     --friction.neighbor window \
     --no_deterministic \
-    --workers 12 \
-    --compile \
+    --workers -1 \
     --save_dir ./result
 done

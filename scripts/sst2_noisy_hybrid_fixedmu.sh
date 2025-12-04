@@ -24,8 +24,8 @@ for intensity in "${INTENSITIES[@]}"; do
     "${DDP_ARGS[@]}" \
     --task sst2_noisy \
     --model hybrid \
-    --epochs 5 \
-    --batch_size 256 \
+    --epochs 3 \
+    --batch_size 1024 \
     --lr 3e-4 \
     --seed "${SEED}" \
     --sortish_batches \
