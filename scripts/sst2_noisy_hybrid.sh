@@ -24,8 +24,8 @@ for intensity in "${INTENSITIES[@]}"; do
     "${DDP_ARGS[@]}" \
     --task sst2_noisy \
     --model hybrid \
-    --epochs 5 \
-    --batch_size 256 \
+    --epochs 3 \
+    --batch_size 512 \
     --lr 3e-4 \
     --seed "${SEED}" \
     --sortish_batches \
@@ -39,6 +39,7 @@ for intensity in "${INTENSITIES[@]}"; do
     --friction.radius 2 \
     --friction.neighbor window \
     --no_deterministic \
-    --workers -1 \
+    --workers 12 \
+    --compile \
     --save_dir ./result
 done

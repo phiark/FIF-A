@@ -24,14 +24,15 @@ for intensity in "${INTENSITIES[@]}"; do
     "${DDP_ARGS[@]}" \
     --task sst2_noisy \
     --model baseline \
-    --epochs 5 \
-    --batch_size 256 \
+    --epochs 3 \
+    --batch_size 512 \
     --lr 3e-4 \
     --seed "${SEED}" \
     --sortish_batches \
     --energy_reg_weight 1e-4 \
+    --compile \
     --noise_intensity "${intensity}" \
     --no_deterministic \
-    --workers -1 \
+    --workers 12 \
     --save_dir ./result
 done

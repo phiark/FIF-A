@@ -22,11 +22,12 @@ python -m fif_mvp.cli.run_experiment \
   "${DDP_ARGS[@]}" \
   --task snli \
   --model baseline \
-  --epochs 5 \
-  --batch_size 256 \
+  --epochs 3 \
+  --batch_size 512 \
   --lr 3e-4 \
   --seed "${SEED}" \
   --sortish_batches \
   --no_deterministic \
-  --workers -1 \
+  --workers 12 \
+  --compile \
   --save_dir ./result
