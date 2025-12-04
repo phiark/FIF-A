@@ -61,8 +61,8 @@ class FrictionLayer(nn.Module):
                 )
                 seq_out, seq_energy = self._run_knn_batch(seq_hidden, edges)
 
-            outputs.index_copy_(0, indices, seq_out)
-            energies.index_copy_(0, indices, seq_energy)
+            outputs[indices, :length, :] = seq_out
+            energies[indices] = seq_energy
 
         return outputs, energies
 
