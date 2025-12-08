@@ -129,14 +129,44 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--energy_reg_target",
         choices=["absolute", "normalized", "margin", "rank"],
-        default="absolute",
-        help="Energy regularization target: absolute (mean log1p), normalized (variance), margin alignment, or rank alignment (default: absolute).",
+        default="rank",
+        help="Energy regularization target: absolute (mean log1p), normalized (variance), margin alignment, or rank alignment (default: rank).",
     )
     parser.add_argument(
         "--energy_reg_mode",
         choices=["absolute", "normalized"],
         default=None,
         help="Deprecated alias for --energy_reg_target (kept for backward compatibility).",
+    )
+    parser.add_argument(
+        "--energy_rank_margin",
+        type=float,
+        default=0.5,
+        help="Margin used when energy_reg_target is margin/rank (batch-normalized energies).",
+    )
+    parser.add_argument(
+        "--energy_rank_topk",
+        type=int,
+        default=1,
+        help="Number of hardest incorrect samples to contrast against each correct sample when computing the ranking loss.",
+    )
+    parser.add_argument(
+        "--energy_rank_fallback",
+        choices=["absolute", "none"],
+        default="absolute",
+        help="Fallback regularizer when a batch has only correct or only incorrect predictions (default: absolute).",
+    )
+    parser.add_argument(
+        "--energy_eval_scope",
+        choices=["auto", "per_sample"],
+        default="auto",
+        help="Energy tensor used for metrics/alerts: auto aligns with regularization scope (e.g., last layer), per_sample uses the summed energy.",
+    )
+    parser.add_argument(
+        "--energy_metrics_source",
+        choices=["normalized", "raw"],
+        default="normalized",
+        help="Use z-score normalized energy for AUROC/coverage metrics (default) or raw energy.",
     )
     parser.add_argument(
         "--energy_guard",
@@ -474,6 +504,11 @@ def _build_experiment_config(
         energy_reg_scope=args.energy_reg_scope,
         energy_reg_target=energy_reg_target,
         energy_reg_mode=energy_reg_target,
+        energy_rank_margin=args.energy_rank_margin,
+        energy_rank_topk=args.energy_rank_topk,
+        energy_rank_fallback=args.energy_rank_fallback,
+        energy_eval_scope=args.energy_eval_scope,
+        energy_metrics_source=args.energy_metrics_source,
         energy_guard=guard_config,
         energy_watch=watch_config,
         use_amp=not args.no_amp,
@@ -498,18 +533,22 @@ def _load_tokenizer_for_config(config: ExperimentConfig, tokenizer_name: str):
 def _configure_cuda_backends(device_choice: DeviceChoice) -> None:
     if device_choice.device != "cuda":
         return
+    is_amd = device_choice.brand.lower() == "amd"
     major = 0
     try:
         if torch.cuda.is_available():
             major, _ = torch.cuda.get_device_capability(0)
-            if hasattr(torch.backends.cuda, "matmul") and hasattr(
-                torch.backends.cuda.matmul, "fp32_precision"
+            if (
+                not is_amd
+                and hasattr(torch.backends.cuda, "matmul")
+                and hasattr(torch.backends.cuda.matmul, "fp32_precision")
             ):
                 torch.backends.cuda.matmul.fp32_precision = (
                     "tf32" if major >= 8 else "ieee"
                 )
             if (
-                hasattr(torch.backends, "cudnn")
+                not is_amd
+                and hasattr(torch.backends, "cudnn")
                 and hasattr(torch.backends.cudnn, "conv")
                 and hasattr(torch.backends.cudnn.conv, "fp32_precision")
             ):
@@ -517,7 +556,7 @@ def _configure_cuda_backends(device_choice: DeviceChoice) -> None:
                     "tf32" if major >= 8 else "ieee"
                 )
         torch.backends.cudnn.benchmark = True
-        if hasattr(torch, "set_float32_matmul_precision") and major >= 8:
+        if not is_amd and hasattr(torch, "set_float32_matmul_precision") and major >= 8:
             torch.set_float32_matmul_precision("high")
     except Exception as exc:  # pragma: no cover - defensive
         warnings.warn(f"Failed to configure CUDA backend optimizations: {exc}")

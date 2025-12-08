@@ -1,17 +1,63 @@
-# FIF Work Board
+# FIF 工作板
+
+**文档元数据**
+- 文档类型：任务追踪与项目管理
+- 当前活跃版本：v1.2.0
+- 最后更新：2024-12-08
+- 总任务数：39
+- 已完成：30 (77%)
+- 相关文档：`PROJECT_TRACKER.md`, `PHASE_RESULTS.md`
+
+**快速导航**
+- [当前冲刺状态](#当前冲刺-v120)
+- [优先级说明](#任务板标准)
+- [活跃任务](#v120-活跃任务)
+- [历史任务](#历史版本任务)
+
+---
+
+## 当前冲刺 (v1.2.0)
+
+**冲刺信息**
+- 版本：v1.2.0
+- 开始日期：2024-12-04
+- 目标完成：2024-12-15
+- 进度：40% (4/10)
+- 状态：🟡 有风险（T-031 阻塞）
+
+**里程碑进度**
+- [ ] M1：SNLI 基线恢复到 >0.70 acc (截止 12-10) - 🟡 40%
+  - 🔄 T-031: SNLI 基线排查 (In Progress)
+  - 📋 T-032: 实现排名损失 (Backlog)
+
+- [ ] M2：干净数据集验证 (截止 12-12) - 🔴 0%
+  - 📋 T-033: 小网格实验 (Backlog)
+
+- [ ] M3：Noisy 数据集扩展 (截止 12-15) - 🔴 0%
+  - 📋 T-034: Noisy SST-2 (Backlog)
+
+**优先级任务**
+- 🔴 P0：T-031 (阻塞中)
+- 🟡 P1：T-032, T-035
+- 🟢 P2：T-036, T-037
+- ⚪ P3：T-038, T-039
+
+---
+
+## 概述
 
 本工作板旨在跟踪面向论文级实验的版本演进，可随项目增长扩展任务列表。
 
-## 下一个版本（1.1.0）概述
-- **版本号**：1.1.0（基于 v1.0.4 的能量正则重构）
-- **为什么需要修改 1.0.4**：
-  - 当前 `mode=normalized` 将 batch 内 `log1p(E)` 拉平，弱化“能量=置信度”，SNLI 相关性接近 0（见 `docs/v1_1_0_energy_rework_plan.md`）。
-  - guard/watch 仅有下界，实质鼓励能量集中；监控指标缺少 AUROC/coverage-risk，无法评估拒判能力。
-  - 结构/超参（K=3、强 η 衰减）可能过度低通，未有轻量脚本验证。
+## 下一个版本（1.2.0）概述
+- **版本号**：1.2.0（基于 1.1.0 诊断失败后的重构）
+- **为什么需要修改 1.1.0**：
+  - absolute 能量正则跨任务行为不一致：SST-2 过度压缩能量且掉点，SNLI 能量爆炸且准确率崩溃。
+  - 目标应聚焦排序关系而非绝对刻度；跨任务刻度统一是伪需求。
+  - SNLI 基线本身过低（~54% acc），需要先修复再谈能量判别力。
 - **版本目标**：
-  1. 重设能量正则默认为 `absolute`，新增 margin/排名目标与 CLI 开关，使能量与分类难度绑定。
-  2. 扩充能量-错误指标（AUROC/AUPRC、coverage-risk、分组分位），guard/watch 改为上下界阈值。
-  3. 提供低 K/低衰减的对照脚本（SNLI/SST-2）验证能量判别力与吞吐折中。
+  1. 采用 batch 归一化能量，并用 margin 排名损失直接优化“正确 < 错误”排序；
+  2. 修复 SNLI 基线（标签/长度/训练配置），建立可靠对照；
+  3. 在干净 SST-2/SNLI 上做小网格 λ∈{0,0.1,0.3}、m=0.5，确认 AUROC/校准收益后再扩展 noisy SST-2。
 
 ## 任务板标准
 - **列定义**：`Backlog`（未启动）、`In Progress`、`Blocked`、`Review`、`Done`。
@@ -70,3 +116,17 @@
 | T-028 | 监控/guard 升级：支持能量上下界阈值与告警，避免单向压缩 | Codex | Done | 1.1.0 | `fif_mvp/train/loop.py`, `fif_mvp/config.py`, `fif_mvp/cli/run_experiment.py`, `README.md` |
 | T-029 | 结构/超参对照：K∈{1,2} 与 η 衰减扫描，新增 SNLI/SST-2 “absolute+λ=1e-4+K=1” 快速脚本 | Codex | Done | 1.1.0 | `scripts/snli_hybrid_k1_absolute.sh`, `scripts/sst2_noisy_hybrid_k1_absolute.sh`（保存至 `result/1_1_0`） |
 | T-030 | 文档/报告同步：更新版本追踪与报告模板，记录新指标与实验矩阵 | Codex | Done | 1.1.0 | `PROJECT_TRACKER.md`, `docs/experiment_design.md`, `docs/v1_1_0_energy_rework_plan.md`, `docs/reports/v1_0_4_experiment_report.md` |
+> 结论：absolute 能量正则被判定为诊断失败，1.1.0 冻结，不再调参。
+
+## v1.2.0 活动任务
+| ID | 描述 | 负责人 | 状态 | 目标版本 | 关联输出/备注 |
+| --- | --- | --- | --- | --- | --- |
+| T-031 | SNLI 基线排查：标签映射、tokenization/max_len、训练 epoch/LR，确认无噪声注入 | Codex | In Progress | 1.2.0 | 提升脚本为 5 epoch、bs=256，save_dir `result/1_2_0`，待复现 acc |
+| T-032 | 实现 batch 归一化能量与 margin 排名损失（架构对齐 1.0.x），CLI 暴露 margin/topk/λ | Codex | In Progress | 1.2.0 | `fif_mvp/train/loop.py`, `fif_mvp/cli/run_experiment.py`, `fif_mvp/config.py`（默认 target=rank + 归一化能量，待跑数） |
+| T-033 | 干净 SST-2/SNLI 小网格：λ∈{0,0.1,0.3}、margin=0.5、seed=42；评估 acc/F1/ECE/AUROC/AURC | Codex | Backlog | 1.2.0 | 仅在基线稳定后执行，结果写入 `result/1_2_0` |
+| T-034 | Noisy SST-2 follow-up：在低/中/高噪声下复测排序能量对 selective risk 的作用 | Codex | Backlog | 1.2.0 | 依赖 T-033 成果，脚本沿用 1.2.0 配置 |
+| T-035 | 评估刻度对齐：推理导出 z-score 能量/分位，并让 AUROC/coverage 使用与正则一致的能量源（末层 vs 跨层可选） | Codex | In Progress | 1.2.0 | 规划改动 `fif_mvp/train/loop.py`, `fif_mvp/models/hybrid_model.py`, `fif_mvp/config.py` |
+| T-036 | 能量归一化与噪声条件化：能量除以有效边/长度；将 `noise_level_ids` 或 logits margin 注入 μ/η 以减轻域间漂移 | Codex | Backlog | 1.2.0 | 需更新 `fif_mvp/models/friction_layer.py` 及噪声嵌入路径 |
+| T-037 | Guard/fallback 稳定化：在 rank/margin 下禁用 std_low 下压，增加全对/全错 batch 的 fallback 正则（entropy/absolute） | Codex | Backlog | 1.2.0 | `fif_mvp/train/loop.py`, `fif_mvp/config.py` |
+| T-038 | 受控合成基准：移植 `fif_simple` 冲突数据集为 CI/单元实验，验证能量-错误单调性 | Codex | Backlog | 1.2.0 | 新增 `tests/` 或 `scripts/` 中的小型 runner，结果进入 `docs/diagnostics/` |
+| T-039 | 文档与报告：同步 1.2.0 设计/矩阵/报告模板，更新 README/PROJECT_TRACKER | Codex | Backlog | 1.2.0 | `docs/experiment_design.md`, `PROJECT_TRACKER.md`, `README.md`, `docs/reports/` |

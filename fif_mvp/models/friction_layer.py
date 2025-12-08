@@ -66,34 +66,6 @@ class FrictionLayer(nn.Module):
 
         return outputs, energies
 
-    def _run_single(
-        self, seq_hidden: torch.Tensor, edges: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if edges.numel() == 0:
-            return seq_hidden, seq_hidden.new_tensor(0.0)
-
-        h_in = seq_hidden
-        q = self.q_proj(h_in)
-        state = h_in
-        last_mu = None
-        for step in range(self.config.K):
-            if self.config.recompute_mu or last_mu is None:
-                current = state if self.config.recompute_mu else h_in
-                mu = self._edge_weights(current, edges)
-            else:
-                mu = last_mu
-            if self.config.mu_max > 0:
-                mu = mu.clamp_max(self.config.mu_max)
-            lap = self._laplacian(state, edges, mu)
-            eta = self._step_eta(step)
-            state = state - eta * (lap - q)
-            state = self._smooth(state)
-            last_mu = mu
-        out = self.norm(state + h_in)
-        final_mu = last_mu if last_mu is not None else self._edge_weights(state, edges)
-        energy = energy_utils.edge_energy(final_mu, state, edges)
-        return out, energy
-
     def _run_window_batch(
         self, seq_hidden: torch.Tensor, edges: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -159,16 +131,6 @@ class FrictionLayer(nn.Module):
         )
         return out, energy
 
-    def _edge_weights(self, hidden: torch.Tensor, edges: torch.Tensor) -> torch.Tensor:
-        h_i = hidden[edges[:, 0]]
-        h_j = hidden[edges[:, 1]]
-        diff = h_i - h_j
-        dist = torch.norm(diff, dim=-1, keepdim=True)
-        cos = F.cosine_similarity(h_i, h_j, dim=-1, eps=1e-6).unsqueeze(-1)
-        feats = torch.cat([dist, cos], dim=-1)
-        mu = F.softplus(self.edge_mlp(feats)) + 1e-5
-        return mu
-
     def _edge_weights_batch(
         self, hidden: torch.Tensor, edges: torch.Tensor
     ) -> torch.Tensor:
@@ -196,26 +158,6 @@ class FrictionLayer(nn.Module):
         feats = torch.cat([dist, cos], dim=-1)
         mu = F.softplus(self.edge_mlp(feats)) + 1e-5
         return mu
-
-    def _laplacian(
-        self, hidden: torch.Tensor, edges: torch.Tensor, mu: torch.Tensor
-    ) -> torch.Tensor:
-        lap = torch.zeros_like(hidden)
-        diffs = hidden[edges[:, 0]] - hidden[edges[:, 1]]
-        weighted = mu * diffs
-        if self.config.normalize_laplacian and edges.numel() > 0:
-            length = hidden.size(0)
-            deg = hidden.new_zeros(length)
-            weights = mu.squeeze(-1)
-            deg.index_add_(0, edges[:, 0], weights)
-            deg.index_add_(0, edges[:, 1], weights)
-            deg = deg.clamp_min(1e-6)
-            inv_sqrt = deg.pow(-0.5)
-            scale = (inv_sqrt[edges[:, 0]] * inv_sqrt[edges[:, 1]]).unsqueeze(-1)
-            weighted = weighted * scale
-        lap.index_add_(0, edges[:, 0], weighted)
-        lap.index_add_(0, edges[:, 1], -weighted)
-        return lap
 
     def _laplacian_variable(
         self, hidden: torch.Tensor, global_edges: torch.Tensor, mu: torch.Tensor
@@ -300,16 +242,6 @@ class FrictionLayer(nn.Module):
             return self.config.eta
         decay = self.config.eta_decay
         return self.config.eta * (decay**step)
-
-    def _smooth(self, state: torch.Tensor) -> torch.Tensor:
-        if self.config.smooth_lambda <= 0:
-            return state
-        lam = self.config.smooth_lambda
-        left = torch.roll(state, 1, dims=0)
-        right = torch.roll(state, -1, dims=0)
-        left[0] = state[0]
-        right[-1] = state[-1]
-        return state - lam * (2 * state - left - right)
 
     def _smooth_batch(self, state: torch.Tensor) -> torch.Tensor:
         if self.config.smooth_lambda <= 0:

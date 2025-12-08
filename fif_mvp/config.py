@@ -85,9 +85,17 @@ class ExperimentConfig:
     train_noise_levels: List[str] = field(default_factory=list)
     energy_reg_weight: float = 0.0
     energy_reg_scope: Literal["all", "last"] = "all"
-    energy_reg_target: Literal["absolute", "normalized", "margin", "rank"] = "absolute"
+    energy_reg_target: Literal["absolute", "normalized", "margin", "rank"] = "rank"
     # Deprecated alias retained for backward compatibility; prefer energy_reg_target.
-    energy_reg_mode: Literal["absolute", "normalized", "margin", "rank"] = "absolute"
+    energy_reg_mode: Literal["absolute", "normalized", "margin", "rank"] = "rank"
+    energy_rank_margin: float = 0.5
+    energy_rank_topk: int = 1
+    # If rank/margin has no correct/incorrect samples, fall back to absolute/none.
+    energy_rank_fallback: Literal["absolute", "none"] = "absolute"
+    # Which energy tensor to use for metrics/alerts: align with reg scope or always per-sample sum.
+    energy_eval_scope: Literal["auto", "per_sample"] = "auto"
+    # Whether correlation metrics use normalized (z-score) energy or raw.
+    energy_metrics_source: Literal["normalized", "raw"] = "normalized"
     energy_guard: EnergyGuardConfig = field(default_factory=EnergyGuardConfig)
     energy_watch: EnergyWatchConfig = field(default_factory=EnergyWatchConfig)
     # Acceleration options

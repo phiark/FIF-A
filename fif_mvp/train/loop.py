@@ -102,6 +102,9 @@ class Trainer:
                         "energy_log_mean": train_metrics["energy_log"],
                         "energy_std": train_metrics["energy_std"],
                         "energy_p90": train_metrics["energy_p90"],
+                        "energy_norm_mean": train_metrics["energy_norm_mean"],
+                        "energy_norm_std": train_metrics["energy_norm_std"],
+                        "energy_norm_p90": train_metrics["energy_norm_p90"],
                         "energy_alert": int(train_alert),
                         "energy_reg_weight": epoch_reg_weight,
                     }
@@ -114,6 +117,9 @@ class Trainer:
                         "energy_log_mean": train_metrics["energy_log"],
                         "energy_std": train_metrics["energy_std"],
                         "energy_p90": train_metrics["energy_p90"],
+                        "energy_norm_mean": train_metrics["energy_norm_mean"],
+                        "energy_norm_std": train_metrics["energy_norm_std"],
+                        "energy_norm_p90": train_metrics["energy_norm_p90"],
                         "energy_alert": int(train_alert),
                         "energy_reg_weight": epoch_reg_weight,
                     }
@@ -140,6 +146,9 @@ class Trainer:
                         "energy_log_mean": val_metrics["energy_log_mean"],
                         "energy_std": val_metrics["energy_std"],
                         "energy_p90": val_metrics["energy_p90"],
+                        "energy_norm_mean": val_metrics.get("energy_norm_mean"),
+                        "energy_norm_std": val_metrics.get("energy_norm_std"),
+                        "energy_norm_p90": val_metrics.get("energy_norm_p90"),
                         "energy_alert": int(val_alert),
                         "energy_reg_weight": epoch_reg_weight,
                     }
@@ -174,6 +183,9 @@ class Trainer:
                 "energy_log_mean": test_metrics["energy_log_mean"],
                 "energy_std": test_metrics["energy_std"],
                 "energy_p90": test_metrics["energy_p90"],
+                "energy_norm_mean": test_metrics.get("energy_norm_mean"),
+                "energy_norm_std": test_metrics.get("energy_norm_std"),
+                "energy_norm_p90": test_metrics.get("energy_norm_p90"),
                 "energy_alert": int(test_alert),
                 "energy_reg_weight": self.energy_reg_weight,
                 "energy_auroc": test_metrics.get("energy_auroc"),
@@ -291,7 +303,8 @@ class Trainer:
             batch_preds = outputs.logits.argmax(dim=-1)
             preds.append(batch_preds.detach().cpu())
             labels.append(batch["labels"].detach().cpu())
-            energy_terms.append(outputs.per_sample_energy.detach().cpu())
+            energy_eval = self._energy_for_eval(outputs)
+            energy_terms.append(energy_eval.detach().cpu())
 
             progress.set_postfix({"loss": loss.item()})
 
@@ -319,6 +332,15 @@ class Trainer:
             if energy_array.size
             else 0.0
         )
+        energy_std = float(np.std(energy_array)) if energy_array.size else 0.0
+        energy_norm = (
+            (energy_array - energy_mean) / (energy_std + 1e-6)
+            if energy_array.size
+            else np.zeros_like(energy_array)
+        )
+        energy_norm_p90 = (
+            float(np.percentile(energy_norm, 90)) if energy_norm.size else 0.0
+        )
         ece = 0.0  # training split uses argmax only
         avg_loss = float(np.mean(losses)) if losses else 0.0
         if self.rank == 0:
@@ -341,10 +363,15 @@ class Trainer:
             "energy": energy_mean,
             "energy_mean": energy_mean,
             "energy_log": energy_log_mean,
-            "energy_std": float(np.std(energy_array)) if energy_array.size else 0.0,
+            "energy_std": energy_std,
             "energy_p90": float(np.percentile(energy_array, 90))
             if energy_array.size
             else 0.0,
+            "energy_norm_mean": float(np.mean(energy_norm))
+            if energy_norm.size
+            else 0.0,
+            "energy_norm_std": float(np.std(energy_norm)) if energy_norm.size else 0.0,
+            "energy_norm_p90": energy_norm_p90,
             "global_step": global_step,
         }
 
@@ -358,81 +385,67 @@ class Trainer:
             energy = outputs.energy_components[-1]
         return energy
 
+    def _energy_for_eval(self, outputs: ModelOutput) -> torch.Tensor:
+        """Energy tensor used for metrics/alerts, aligned with eval scope config."""
+
+        energy = outputs.per_sample_energy
+        if (
+            self.config.energy_eval_scope == "auto"
+            and self.config.energy_reg_scope == "last"
+            and outputs.energy_components is not None
+            and outputs.energy_components.numel() > 0
+        ):
+            energy = outputs.energy_components[-1]
+        return energy
+
     def _compute_energy_regularizer(
         self,
         energy_tensor: torch.Tensor,
         logits: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        eps = 1e-12
+        eps = 1e-6
         clamped = energy_tensor.clamp_min(0.0)
-        log_vals = torch.log1p(clamped + eps)
         target = getattr(self.config, "energy_reg_target", None) or getattr(
             self.config, "energy_reg_mode", "absolute"
         )
 
+        # Batch-normalize energy for ranking objectives to remove cross-task scale/shift.
+        energy_mean = clamped.mean()
+        energy_std = clamped.std(unbiased=False)
+        energy_norm = (clamped - energy_mean) / (energy_std + eps)
+
+        if target in {"margin", "rank"}:
+            if logits is None or labels is None or energy_norm.numel() == 0:
+                return torch.zeros(
+                    (), device=energy_norm.device, dtype=energy_norm.dtype
+                )
+            with torch.no_grad():
+                preds = logits.argmax(dim=-1)
+                correct_mask = preds.eq(labels)
+            correct_energy = energy_norm[correct_mask]
+            wrong_energy = energy_norm[~correct_mask]
+            if correct_energy.numel() == 0 or wrong_energy.numel() == 0:
+                fallback = getattr(self.config, "energy_rank_fallback", "absolute")
+                if fallback == "absolute":
+                    return torch.log1p(clamped + eps).mean()
+                return torch.zeros(
+                    (), device=energy_norm.device, dtype=energy_norm.dtype
+                )
+            topk = getattr(self.config, "energy_rank_topk", 1) or 1
+            topk = max(1, min(int(topk), wrong_energy.numel()))
+            hardest_wrong = torch.topk(wrong_energy, k=topk, largest=True).values
+            margin = float(getattr(self.config, "energy_rank_margin", 0.5))
+            # Encourage correct energies to be lower than hardest wrong ones by at least margin.
+            penalties = F.relu(
+                margin + correct_energy.unsqueeze(1) - hardest_wrong.unsqueeze(0)
+            )
+            return penalties.mean()
+
+        log_vals = torch.log1p(clamped + eps)
         if target == "normalized":
             centered = log_vals - log_vals.mean()
             return centered.pow(2).mean()
-
-        if target == "margin":
-            if logits is None or labels is None:
-                return log_vals.mean()
-            with torch.no_grad():
-                labels = labels.view(-1, 1)
-                correct = torch.gather(logits, 1, labels).squeeze(-1)
-                k_val = min(2, logits.size(-1))
-                top_vals, top_idx = torch.topk(logits, k=k_val, dim=-1)
-                if logits.size(-1) > 1 and k_val == 2:
-                    is_label_top1 = top_idx[:, 0] == labels.squeeze(-1)
-                    second = torch.where(is_label_top1, top_vals[:, 1], top_vals[:, 0])
-                else:
-                    second = torch.zeros_like(correct)
-                margin = correct - second
-                difficulty = -margin
-                z_diff = (difficulty - difficulty.mean()) / (
-                    difficulty.std(unbiased=False) + eps
-                )
-            z_energy = (log_vals - log_vals.mean()) / (
-                log_vals.std(unbiased=False) + eps
-            )
-            return (z_energy - z_diff).pow(2).mean()
-
-        if target == "rank":
-            if logits is None or labels is None or log_vals.numel() < 2:
-                return log_vals.mean()
-            with torch.no_grad():
-                labels = labels.view(-1, 1)
-                correct = torch.gather(logits, 1, labels).squeeze(-1)
-                k_val = min(2, logits.size(-1))
-                top_vals, top_idx = torch.topk(logits, k=k_val, dim=-1)
-                if logits.size(-1) > 1 and k_val == 2:
-                    is_label_top1 = top_idx[:, 0] == labels.squeeze(-1)
-                    second = torch.where(is_label_top1, top_vals[:, 1], top_vals[:, 0])
-                else:
-                    second = torch.zeros_like(correct)
-                difficulty = -(correct - second)
-                # sample pairwise comparisons to avoid O(n^2) blow-up
-                n = log_vals.size(0)
-                max_pairs = min(1024, n * (n - 1) // 2)
-                idx_i = torch.randint(0, n, (max_pairs,), device=log_vals.device)
-                idx_j = torch.randint(0, n, (max_pairs,), device=log_vals.device)
-                keep = idx_i != idx_j
-                if keep.sum() == 0:
-                    return log_vals.mean()
-                idx_i = idx_i[keep]
-                idx_j = idx_j[keep]
-                diff_diff = difficulty[idx_i] - difficulty[idx_j]
-                sign = torch.sign(diff_diff)
-                non_zero = sign != 0
-                if non_zero.sum() == 0:
-                    return log_vals.mean()
-                sign = sign[non_zero]
-                idx_i = idx_i[non_zero]
-                idx_j = idx_j[non_zero]
-            diff_energy = log_vals[idx_i] - log_vals[idx_j]
-            # Encourage energies to follow difficulty ordering: harder (higher difficulty) -> larger energy
-            return F.softplus(-diff_energy * sign).mean()
 
         # default absolute (scale control only)
         return log_vals.mean()
@@ -441,6 +454,9 @@ class Trainer:
         guard = getattr(self.config, "energy_guard", None)
         if guard is None or self.energy_reg_weight <= 0.0:
             return
+        target = getattr(self.config, "energy_reg_target", None) or getattr(
+            self.config, "energy_reg_mode", "absolute"
+        )
         std_val = metrics.get("energy_std", 0.0)
         p90_val = metrics.get("energy_p90", 0.0)
         factor_down = getattr(guard, "factor", 0.5)
@@ -459,7 +475,7 @@ class Trainer:
         new_weight = self.energy_reg_weight
         reasons: List[Dict[str, Any]] = []
 
-        if std_low > 0.0 and std_val < std_low:
+        if std_low > 0.0 and std_val < std_low and target not in {"margin", "rank"}:
             candidate = max(min_weight, new_weight * factor_down)
             if candidate < new_weight:
                 reasons.append(
@@ -677,6 +693,9 @@ class Trainer:
                 "energy_log_mean": 0.0,
                 "energy_std": 0.0,
                 "energy_p90": 0.0,
+                "energy_norm_mean": 0.0,
+                "energy_norm_std": 0.0,
+                "energy_norm_p90": 0.0,
             }
         self.model.eval()
         all_logits: List[torch.Tensor] = []
@@ -721,7 +740,8 @@ class Trainer:
                 losses.append(loss.item())
                 all_logits.append(outputs.logits.detach().cpu())
                 all_labels.append(batch["labels"].detach().cpu())
-                all_energies.append(outputs.per_sample_energy.detach().cpu())
+                energy_eval = self._energy_for_eval(outputs)
+                all_energies.append(energy_eval.detach().cpu())
 
         logits = torch.cat(all_logits, dim=0)
         labels = torch.cat(all_labels, dim=0)
@@ -734,6 +754,15 @@ class Trainer:
         energy_log_mean = float(np.mean(np.log1p(np.maximum(energies_np, 0.0))))
         energy_std = float(np.std(energies_np)) if energies_np.size else 0.0
         energy_p90 = float(np.percentile(energies_np, 90)) if energies_np.size else 0.0
+        energy_norm = (
+            (energies_np - energies_np.mean()) / (energy_std + 1e-6)
+            if energies_np.size
+            else energies_np
+        )
+        energy_norm_std = float(np.std(energy_norm)) if energy_norm.size else 0.0
+        energy_norm_p90 = (
+            float(np.percentile(energy_norm, 90)) if energy_norm.size else 0.0
+        )
         metrics = {
             "loss": float(losses_np.mean()) if losses_np.size else 0.0,
             "acc": metrics_lib.compute_accuracy(preds, labels_np),
@@ -743,6 +772,9 @@ class Trainer:
             "energy_log_mean": energy_log_mean,
             "energy_std": energy_std,
             "energy_p90": energy_p90,
+            "energy_norm_mean": float(energy_norm.mean()) if energy_norm.size else 0.0,
+            "energy_norm_std": energy_norm_std,
+            "energy_norm_p90": energy_norm_p90,
         }
 
         if record_confusion:
@@ -753,15 +785,20 @@ class Trainer:
 
         if compute_correlation:
             errors = (preds != labels_np).astype(np.float32)
-            energies_np = energies.numpy()
-            if np.std(errors) == 0 or np.std(energies_np) == 0:
+            corr_energy = (
+                energy_norm
+                if getattr(self.config, "energy_metrics_source", "normalized")
+                == "normalized"
+                else energies_np
+            )
+            if np.std(errors) == 0 or np.std(corr_energy) == 0:
                 pearson_r = 0.0
             else:
-                pearson_r = float(np.corrcoef(errors, energies_np)[0, 1])
-            auroc = metrics_lib.safe_roc_auc(errors, energies_np)
-            auprc = metrics_lib.safe_average_precision(errors, energies_np)
-            coverage = metrics_lib.coverage_risk(errors, energies_np)
-            quantiles = metrics_lib.split_energy_quantiles(errors, energies_np)
+                pearson_r = float(np.corrcoef(errors, corr_energy)[0, 1])
+            auroc = metrics_lib.safe_roc_auc(errors, corr_energy)
+            auprc = metrics_lib.safe_average_precision(errors, corr_energy)
+            coverage = metrics_lib.coverage_risk(errors, corr_energy)
+            quantiles = metrics_lib.split_energy_quantiles(errors, corr_energy)
             coverage_curve = []
             cov_arr = coverage.get("coverages")
             risk_arr = coverage.get("risks")
@@ -806,6 +843,9 @@ class Trainer:
                 "coverage_curve": coverage_curve,
                 "quantiles": quantiles,
                 "n": int(len(errors)),
+                "energy_metrics_source": getattr(
+                    self.config, "energy_metrics_source", "normalized"
+                ),
                 "notes": "computed on test set",
             }
             with open(
@@ -816,7 +856,7 @@ class Trainer:
                 df = pd.DataFrame(
                     {
                         "sample_idx": np.arange(len(energies_np)),
-                        "energy": energies_np,
+                        "energy": corr_energy,
                         "error": errors,
                     }
                 )
@@ -854,6 +894,9 @@ class Trainer:
             "coverage_risk_at_95",
             "energy_p90_correct",
             "energy_p90_incorrect",
+            "energy_norm_mean",
+            "energy_norm_std",
+            "energy_norm_p90",
         ]
         for key in optional_keys:
             if key in metrics:

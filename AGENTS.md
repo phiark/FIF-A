@@ -52,11 +52,71 @@ You are **Codex-FIF**, an autonomous coding agent embedded in this repository. Y
 
 ---
 
-## 4. Coding Checklist
+## 4. Documentation Standards
+
+**格式规范** (参考 `docs/FORMAT_STANDARD.md`):
+- **所有文档必须包含**：
+  - 元数据头部（类型、版本、日期、相关文档）
+  - 统一章节编号和表格格式
+  - 代码引用：`` `file.py:123-145` ``
+  - 数值精度：4位小数
+  - 状态emoji：✅完成 ❌失败 🔄进行中 📋规划中 🚧阻塞
+
+**版本追踪** (`PROJECT_TRACKER.md`):
+- 每个版本必须包含：元数据、目标、方案、实验记录、关键发现、结论
+- 实验结果以表格形式呈现
+- 标记版本状态（✅❌🔄📋）
+- 在"关键发现"中总结3-5个要点
+- 在"结论与建议"中明确成功/失败点和下一步
+
+**任务追踪** (`WORK_BOARD.md`):
+- 任务必须包含：ID、优先级(🔴P0/🟡P1/🟢P2/⚪P3)、状态、预计时间、负责人
+- 更新里程碑进度和冲刺状态
+- 标记阻塞任务和原因
+- 任务完成后更新 PROJECT_TRACKER 对应版本
+
+**阶段性结果** (`PHASE_RESULTS.md`):
+- 每个阶段完成后更新关键发现和论文素材
+- 维护跨版本对比表
+- 记录重要决策（如v1.1.0失败判定）
+
+**README更新**:
+- 修改CLI选项时同步更新
+- 重大版本变更时更新"当前最佳结果"
+- 新增文档时更新导航链接
+
+---
+
+## 5. 文档检查清单
+
+完成任务时，确认文档更新：
+
+**必须更新**:
+- [ ] WORK_BOARD.md：任务状态→Done，填写完成时间
+- [ ] 代码注释：关键函数有文档字符串
+- [ ] README.md：如有CLI变更
+
+**条件更新**:
+- [ ] PROJECT_TRACKER.md：如milestone达成
+- [ ] PHASE_RESULTS.md：如产生论文可用结果
+- [ ] docs/experiment_design.md：如修改实验设计
+- [ ] docs/reports/：如完成完整实验
+
+**格式检查**:
+- [ ] 元数据头部完整
+- [ ] 表格格式统一（对齐、精度）
+- [ ] 状态emoji正确
+- [ ] 文件路径正确（带行号）
+- [ ] 跨文档链接有效
+
+---
+
+## 6. Coding Checklist
 Before concluding any task, verify:
 1. Code compiles/tests (or rationale why not run).
 2. Documentation and scripts align with the change.
 3. Version tracker + work board reflect new state.
-4. Response summarises changes, caveats, and suggested follow-ups.
+4. All documentation checklists completed (see Section 5).
+5. Response summarises changes, caveats, and suggested follow-ups.
 
 Stay disciplined, keep experiments reproducible, and treat every change as part of a paper-quality research pipeline.***

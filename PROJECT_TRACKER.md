@@ -1,4 +1,42 @@
-# FIF 项目追踪文档
+# FIF 项目版本追踪
+
+**文档元数据**
+- 文档类型：技术版本追踪
+- 当前活跃版本：v1.2.0 (🔄 进行中)
+- 最后更新：2024-12-08
+- 维护者：Research Team
+- 相关文档：`WORK_BOARD.md`, `PHASE_RESULTS.md`, `docs/experiment_design.md`
+
+**快速导航**
+- [版本状态概览](#版本状态概览)
+- [文档格式规范](#文档格式新增版本需遵循的顺序与字段)
+- [版本历史](#版本历史)
+- [跨版本对比](#跨版本对比总表)
+
+---
+
+## 版本状态概览
+
+| 版本 | 状态 | 开始日期 | 完成日期 | 关键指标 (SNLI Acc / SST-2 Low Acc) | 结论 |
+|---|---|---|---|---|---|
+| v0.0.0 | ✅ 完成 | 2024-11-09 | 2024-11-09 | - / 0.75 | 初始基线 |
+| v1.0.0 | ✅ 完成 | 2024-11-09 | 2024-11-12 | 0.69 / - | 噪声条件化 |
+| v1.0.1 | ✅ 完成 | 2024-11-12 | 2024-11-12 | 0.70 / - | DDP支持 |
+| v1.0.2 | ✅ 完成 | 2024-11-14 | 2024-11-14 | - / - | 基础设施 |
+| v1.0.3 | ✅ 完成 | 2024-11-16 | 2024-11-16 | 0.70 / 0.79 | 能量监控 |
+| v1.0.4 | ✅ 完成 | 2024-12-02 | 2024-12-02 | 0.69 / 0.81 ⭐ | 性能优化 |
+| v1.1.0 | ❌ 失败冻结 | 2024-12-03 | 2024-12-04 | 0.51 💥 / 0.79 | Absolute失败 |
+| v1.2.0 | 🔄 进行中 | 2024-12-04 | 预计12-15 | TBD / TBD | Rank方案 |
+
+**图例**
+- ✅ 完成：实验已完成并记录
+- ❌ 失败：方案验证失败，已冻结
+- 🔄 进行中：当前活跃开发
+- 📋 规划中：已计划但未启动
+
+---
+
+## 概述
 
 本文件记录 FIF 混合架构实验的版本沿革，所有版本条目按以下统一技术格式撰写，任何新增版本都应在末尾追加同结构内容。
 
@@ -151,22 +189,106 @@
   5. 脚本优化：`scripts/snli_baseline.sh` 与 `scripts/snli_hybrid.sh` 默认启用 `--sortish_batches` 减少 padding；新增 `scripts/snli_hybrid_fixedmu.sh` 以 `--friction.no_recompute_mu` 作为对照，便于吞吐与精度权衡实验；SST-2 相同优化同步至 `scripts/sst2_noisy_baseline.sh`、`scripts/sst2_noisy_hybrid.sh` 并新增 `scripts/sst2_noisy_hybrid_fixedmu.sh`；全部脚本统一 `--save_dir ./result/1_0_4`。
   6. 文档与验真：新增 `docs/reports/v1_0_4_experiment_report.md`（报告模板与验证流程）与 `scripts/summarize_results.py`（结果聚合）。
 
-## 版本 1.1.0（进行中）
+## 版本 1.1.0（诊断失败，冻结）
 - **版本号**：1.1.0
-- **更新时间**：2025-12-03
-- **迭代来源**：基于 v1.0.4 能量正则（normalized 方差）弱化判别力的诊断。
+- **更新时间**：2025-12-04
+- **迭代来源**：基于 v1.0.4 能量正则判别力不足的诊断尝试。
 - **版本目标**：
-  - 将能量正则默认切换为 `absolute`，并引入 margin/排名式目标，使能量与分类难度正向关联；
-  - 扩充能量-错误指标（AUROC/AUPRC、coverage-risk、正确/错误分组分位），使拒判与置信评估可量化；
-  - 改进监控与 guard，提供能量上下界阈值，防止单向压缩，同时给出低 K/低衰减脚本以平衡吞吐与判别力。
+  - 将能量正则默认切换为 `absolute`，引入 margin/排名式目标候选；
+  - 扩充能量-错误指标（AUROC/AUPRC、coverage-risk、分组分位），并完善 guard/watch 上下界。
 - **公式与管线（变更）**：
-  - **能量正则**：CLI 默认 `energy_reg_target=absolute`、`scope=last`，保留 normalized/margin/rank 作为对照；`_compute_energy_regularizer` 支持 margin/排名目标。
-  - **指标与监控**：测试期新增 AUROC/AUPRC、coverage-risk（AURC + risk@{0.8,0.9,0.95}）与正确/错误能量分位，写入 `metrics_epoch.csv`、`energy_epoch.csv`（test 行）、`test_summary.json`、`energy_error_correlation.json`（含 coverage 曲线子采样）。guard/watch 支持 std/p90/mean 上下界并记录触发原因。
-  - **实验脚本**：新增 SNLI/SST-2 “absolute + λ=1e-4 + K=1” 快速脚本（保存至 `result/1_1_0`），扫参轴建议 K∈{1,2}、η 衰减 `{0,0.5}`。
-- **实验记录**：代码/脚本已落地，等待运行 SNLI 与 Noisy SST-2 的 K=1+absolute sanity，对比 normalized 基线后回填表格。
+  - **能量正则**：CLI 默认 `energy_reg_target=absolute`、`scope=last`，提供 normalized/margin/rank 选项；`_compute_energy_regularizer` 支持排名式目标。
+  - **指标与监控**：测试期输出 AUROC/AUPRC、coverage-risk（AURC + risk@{0.8,0.9,0.95}）与正确/错误分位；guard/watch 支持 std/p90/mean 上下界。
+  - **实验脚本**：新增 SNLI/SST-2 “absolute + λ=1e-4 + K=1” 快速脚本（`result/1_1_0`）。
+- **实验记录（seed=42）**：
+  - SST-2 low/med：Hybrid 较基线在 acc 上 -0.6pt / -2pt，能量 AUROC 仅小幅提升（+0.01~0.02），能量被压缩到 2–30 区间，AURC 与校准变差（med）。
+  - SST-2 high：Hybrid +1.1pt acc，AURC 略优（0.289→0.276），AUROC 几乎不变，ECE 变差，能量仍被强行压至 <5。
+  - SNLI：Hybrid acc 再跌 3pt（0.536→0.506），AUROC +0.06，但能量均值/ p90 爆到 4.6k/6.1k，正则失效。
+  - 结论：absolute 能量正则在跨任务上行为不一致——SST-2 过度压缩、SNLI 完全失控；AUROC 的微弱提升以准确率下跌为代价，判定为“诊断失败”并冻结。
 - **修改与改进点**：
   1. 训练/评估：`fif_mvp/train/loop.py` 增加 AUROC/AUPRC/coverage-risk/分位输出，`test_summary.json` 与 `energy_error_correlation.json` 覆盖新字段；`energy_epoch.csv` test 行附带能量-错误指标。
   2. 度量函数：`fif_mvp/train/metrics.py` 新增安全版 AUROC/AUPRC、coverage-risk 计算与正确/错误能量分位。
   3. 监控与配置：`fif_mvp/config.py` 扩展 guard/watch 上下界字段，`fif_mvp/cli/run_experiment.py` 支持 `std_high/p90_high/mean_low/mean_high/up/max_weight` 等解析，Trainer guard 支持 λ 上/下调并记录告警。
   4. 工具与脚本：`scripts/snli_hybrid_k1_absolute.sh`、`scripts/sst2_noisy_hybrid_k1_absolute.sh`（K=1、absolute 快速对照，默认保存 `result/1_1_0`）；`scripts/summarize_results.py` 聚合新指标并接受自定义结果根目录。
   5. 文档：更新 `WORK_BOARD.md`、`docs/experiment_design.md`、`docs/v1_1_0_energy_rework_plan.md`，README 补充 guard/watch 上下界与新产物字段。
+  6. 处置：冻结 1.1.0，不再调参；转向 1.2.0 的归一化 + 排名能量方案。
+
+## 版本 1.2.0（进行中）
+- **版本号**：1.2.0
+- **状态**：🔄 进行中
+- **更新时间**：2024-12-04
+- **迭代来源**：基于 1.1.0 诊断失败及 1.0.x 稳定架构，重构能量目标。
+- **版本目标**：
+  - 采用 batch 归一化能量 `E_norm = (E - mean) / std`，放弃跨任务绝对刻度；
+  - 引入 margin 排名能量损失，直接优化 "正确样本能量 < 错误样本能量" 的排序关系；
+  - 修复 SNLI 基线（标签、tokenization、训练配置）后，再在干净 SST-2 / SNLI 上做小网格 λ∈{0,0.1,0.3}、m=0.5 验证；
+  - 稳定后再扩展到 noisy SST-2，评估 selective risk。
+- **公式与管线（变更计划）**：
+  - **能量归一化**：每 batch 计算 `μ, σ`，得到 `E_norm = (E-μ)/(σ+1e-6)`，正则作用于 `E_norm` 而非原始能量。
+  - **排名损失**：按预测正确/错误拆分，使用 `L_energy = mean(max(0, m + E_norm_correct - topk(E_norm_wrong)))`，总损失 `L = CE + λ·L_energy`。
+  - **架构**：沿用 1.0.x Hybrid/Baseline，不引入额外结构变化。
+- **实验记录**：计划中——待 SNLI 基线修复后，先在干净 SST-2/SNLI 跑 seed=42 小网格，再决定是否扩展噪声场景。
+- **修改与改进点（计划）**：
+  1. 训练循环：实现 batch 归一化能量与 margin 排名损失；CLI 暴露 `--energy_rank_margin`、`--energy_rank_topk` 等超参。
+  2. 数据/配置：排查并修复 SNLI 基线（标签映射、max_len、LR/epoch、无噪声注入），建立可靠对照。
+  3. 实验矩阵：clean SST-2/SNLI λ 网格 + noisy SST-2 follow-up，指标同 1.1.0（AUROC/AUPRC/coverage-risk/ECE）。
+
+---
+
+## 跨版本对比总表
+
+### SNLI 任务对比
+| 版本 | 模型 | K | 正则方法 | Accuracy | F1 | ECE | Energy (log) | Pearson r | 训练时间 |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|
+| v1.0.0 | Baseline | - | - | 0.7834 | 0.7824 | 0.019 | 5.90 | -0.11 | 656s |
+| v1.0.0 | Hybrid | 3 | λ=0 | 0.6877 | 0.6868 | 0.013 | 7.20 | -0.01 | - |
+| v1.0.1 | Baseline | - | - | 0.7767 | 0.7749 | 0.029 | 5.81 | -0.10 | 2680s |
+| v1.0.1 | Hybrid | 3 | Absolute λ=1e-4 | 0.6967 | 0.6951 | 0.017 | 0.068 ⚠️ | +0.06 | 4490s |
+| v1.0.3 | Baseline | - | - | 0.7767 | 0.7749 | 0.029 | 5.81 | -0.10 | 653s |
+| v1.0.3 | Hybrid | 3 | Normalized λ=1e-4 | 0.6971 | 0.6957 | 0.019 | 7.59 | +0.02 | 8699s |
+| v1.0.4 | Baseline | - | - | 0.758 | 0.756 | 0.018 | 5.03 | - | 819s |
+| v1.0.4 | Hybrid (动态μ) | 3 | Normalized λ=1e-4 | 0.691 | 0.690 | 0.017 | 7.59 | +0.04 | 2379s |
+| v1.0.4 | Hybrid (固定μ) | 3 | Normalized λ=1e-4 | 0.686 | 0.683 | 0.017 | 10.06 | +0.09 | 1863s |
+| v1.1.0 | Baseline | - | - | 0.536 💥 | - | 0.078 | 4.27 | - | - |
+| v1.1.0 | Hybrid | 1 | Absolute λ=1e-4 | 0.506 ❌ | - | 0.080 | 4617 💥 | +0.06 | - |
+| v1.2.0 | Baseline | - | - | TBD | TBD | TBD | TBD | TBD | TBD |
+| v1.2.0 | Hybrid | TBD | Rank + Z-score | TBD | TBD | TBD | TBD | TBD | TBD |
+
+### SST-2 Low Noisy 对比
+| 版本 | 模型 | K | 正则方法 | Accuracy | F1 | ECE | Energy (log) | Pearson r |
+|---|---|---|---|---:|---:|---:|---:|---:|
+| v0.0.0 | Baseline | - | - | 0.7706 | 0.7706 | 0.097 | 77.75 | - |
+| v0.0.0 | Hybrid | 3 | λ=0 | 0.7523 | 0.7516 | 0.124 | 5495.70 | - |
+| v1.0.3 | Baseline | - | - | 0.8016 | 0.8010 | 0.091 | 6.88 | -0.02 |
+| v1.0.3 | Hybrid | 1 | Normalized λ=1e-4 | 0.7867 | 0.7864 | 0.075 | 0.62 | -0.07 |
+| v1.0.4 | Baseline | - | - | 0.782 | 0.779 | 0.088 | 6.28 | - |
+| v1.0.4 | Hybrid (动态μ) | 1 | Normalized λ=1e-4 | 0.799 | 0.799 | 0.071 | 0.69 | - |
+| v1.0.4 | Hybrid (固定μ) | 1 | Normalized λ=1e-4 | **0.808** ⭐ | 0.808 | **0.064** | 1.13 | - |
+| v1.1.0 | Baseline | - | - | 0.796 | - | 0.084 | 6.28 | - |
+| v1.1.0 | Hybrid | 1 | Absolute λ=1e-4 | 0.790 | - | 0.092 | 2.12 | +0.02 |
+| v1.2.0 | Baseline | - | - | TBD | TBD | TBD | TBD | TBD |
+| v1.2.0 | Hybrid | TBD | Rank + Z-score | TBD | TBD | TBD | TBD | TBD |
+
+**关键观察**
+- ⭐ **最佳结果**：v1.0.4 Fixed-μ Hybrid 在 SST-2 Low 上达到 0.808 acc
+- ❌ **最差结果**：v1.1.0 SNLI 基线和 Hybrid 双双崩溃
+- 📈 **持续趋势**：ECE 在 SST-2 上持续改善（0.124 → 0.064）
+- ⚠️ **待解决**：SNLI 任务上 Hybrid 持续落后 6-8 pt
+
+### 能量-错误相关性演进
+| 版本 | 正则方法 | SNLI Pearson r | SST-2 Avg Pearson r | Energy AUROC (SST-2) | 状态 |
+|---|---|---:|---:|---:|---|
+| v1.0.0 | 无正则 | -0.01 | - | - | 基线 |
+| v1.0.1 | Absolute λ=1e-4 | +0.06 | - | - | 能量崩塌 |
+| v1.0.3 | Normalized λ=1e-4 | +0.02 | -0.05 | - | 相关性弱 |
+| v1.0.4 | Normalized λ=1e-4 | +0.04 ~ +0.09 | - | - | 略有改善 |
+| v1.1.0 | Absolute λ=1e-4 (K=1) | +0.06 | +0.01 | 0.52 | ❌ 失败 |
+| v1.2.0 | Rank + Z-score | TBD | TBD | TBD | 🔄 进行中 |
+
+---
+
+**文档维护**
+- 每个版本完成后立即更新对应章节
+- 更新"版本状态概览"表格
+- 补充"跨版本对比总表"数据
+- 同步更新 `PHASE_RESULTS.md`

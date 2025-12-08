@@ -1,0 +1,73 @@
+# Regular SNLI and SST-2 experiments
+experiments:
+  # SNLI Baseline
+  - name: snli_baseline
+    ddp: auto
+    params:
+      task: snli
+      model: baseline
+      epochs: 5
+      batch_size: 256
+      lr: 3e-4
+      seed: 42
+      save_dir: ./result
+      workers: -1
+    flags: [sortish_batches]
+
+  # SNLI Hybrid with FIF
+  - name: snli_hybrid
+    ddp: auto
+    params:
+      task: snli
+      model: hybrid
+      epochs: 5
+      batch_size: 256
+      lr: 3e-4
+      seed: 42
+      friction.K: 3
+      friction.radius: 2
+      friction.neighbor: window
+      energy_reg_weight: 0.1
+      energy_reg_scope: last
+      energy_reg_target: rank
+      energy_rank_margin: 0.5
+      energy_rank_topk: 1
+      save_dir: ./result
+      workers: -1
+    flags: [sortish_batches]
+
+  # SST-2 Baseline
+  - name: sst2_baseline
+    ddp: auto
+    params:
+      task: sst2
+      model: baseline
+      epochs: 3
+      batch_size: 512
+      lr: 3e-4
+      seed: 42
+      save_dir: ./result
+      workers: -1
+    flags: [sortish_batches]
+
+  # SST-2 Hybrid with FIF
+  - name: sst2_hybrid
+    ddp: auto
+    params:
+      task: sst2
+      model: hybrid
+      epochs: 3
+      batch_size: 512
+      lr: 3e-4
+      seed: 42
+      friction.K: 3
+      friction.radius: 2
+      friction.neighbor: window
+      energy_reg_weight: 0.1
+      energy_reg_scope: last
+      energy_reg_target: rank
+      energy_rank_margin: 0.5
+      energy_rank_topk: 1
+      save_dir: ./result
+      workers: -1
+    flags: [sortish_batches]

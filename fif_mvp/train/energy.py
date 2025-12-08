@@ -65,21 +65,3 @@ def sequence_energy(
         out_vals = edge_energy_batch(mu, seq_hidden, edges)
         out.index_copy_(0, idx, out_vals)
     return out
-
-
-def per_token_energy(
-    mu: torch.Tensor, hidden: torch.Tensor, edges: torch.Tensor, length: int
-) -> torch.Tensor:
-    """Split edge energies evenly across incident tokens."""
-
-    if edges.numel() == 0:
-        return hidden.new_zeros(length)
-    h_i = hidden[edges[:, 0]]
-    h_j = hidden[edges[:, 1]]
-    diff = h_i - h_j
-    squared = diff.pow(2).sum(dim=-1)
-    edge_vals = 0.5 * mu.squeeze(-1) * squared
-    contrib = hidden.new_zeros(length)
-    contrib.index_add_(0, edges[:, 0], 0.5 * edge_vals)
-    contrib.index_add_(0, edges[:, 1], 0.5 * edge_vals)
-    return contrib

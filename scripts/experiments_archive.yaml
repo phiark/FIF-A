@@ -1,0 +1,90 @@
+# Archive of old experiment configurations (v1.1.0 and noisy variants)
+# These are kept for reference but not used in regular runs
+
+experiments:
+  # v1.1.0 absolute regularization (failed approach)
+  - name: snli_hybrid_k1_absolute
+    ddp: auto
+    params:
+      task: snli
+      model: hybrid
+      epochs: 1
+      batch_size: 1024
+      lr: 3e-4
+      seed: 42
+      friction.K: 1
+      friction.radius: 2
+      friction.neighbor: window
+      friction.eta_decay: 0.0
+      energy_reg_weight: 1e-4
+      energy_reg_scope: last
+      energy_reg_target: absolute
+      energy_guard: std_low=0.05,std_high=6,p90_high=8,factor=0.5,up=1.2,min_weight=1e-5,max=1e-3
+      energy_watch: std=0.05,std_high=8,p90=0.5,p90_high=10,mean_low=0.05
+      save_dir: ./result/1_1_0
+      workers: -1
+    flags: [sortish_batches, no_deterministic]
+
+  # SST-2 Noisy variants
+  - name: sst2_noisy_baseline
+    ddp: auto
+    sweep:
+      noise_intensity: [low, med, high]
+    params:
+      task: sst2_noisy
+      model: baseline
+      epochs: 3
+      batch_size: 1024
+      lr: 3e-4
+      seed: 42
+      energy_reg_weight: 1e-4
+      save_dir: ./result
+      workers: -1
+    flags: [sortish_batches, no_deterministic]
+
+  - name: sst2_noisy_hybrid_rank
+    ddp: auto
+    sweep:
+      noise_intensity: [low, med, high]
+    params:
+      task: sst2_noisy
+      model: hybrid
+      epochs: 3
+      batch_size: 1024
+      lr: 3e-4
+      seed: 42
+      energy_reg_weight: 1e-4
+      energy_reg_scope: last
+      energy_reg_mode: normalized
+      energy_guard: std=0.1,factor=0.5,min_weight=1e-5
+      energy_watch: std=0.1,p90=0.5
+      friction.K: 1
+      friction.radius: 2
+      friction.neighbor: window
+      save_dir: ./result
+      workers: -1
+    flags: [sortish_batches, no_deterministic]
+
+  - name: sst2_noisy_hybrid_k1_absolute
+    ddp: auto
+    sweep:
+      noise_intensity: [low, med, high]
+    params:
+      task: sst2_noisy
+      model: hybrid
+      epochs: 3
+      batch_size: 1024
+      lr: 3e-4
+      seed: 42
+      energy_reg_weight: 1e-4
+      energy_reg_scope: last
+      energy_reg_target: absolute
+      energy_guard: std_low=0.05,std_high=6,p90_high=8,factor=0.5,up=1.2,min_weight=1e-5,max=1e-3
+      energy_watch: std=0.05,std_high=8,p90=0.5,p90_high=10,mean_low=0.05
+      friction.K: 1
+      friction.radius: 2
+      friction.neighbor: window
+      friction.eta_decay: 0.0
+      save_dir: ./result/1_1_0
+      workers: -1
+    flags: [sortish_batches, no_deterministic]

@@ -1,58 +1,79 @@
-# FIF-A Codebase Structure & Cleanup Roadmap
+# FIF-A 代码库结构与清理路线图
 
-This document captures the current repository layout, the hygiene plan for
-v1.0.4, and the concrete actions already taken to keep the code practical for
-experimentation, optimization, and troubleshooting.
-
----
-
-## 1. Directory Overview
-
-| Path | Purpose | Notes |
-| --- | --- | --- |
-| `fif_mvp/` | Main training stack | Contains CLI, dataloaders, models, training loop, utilities. |
-| `Project_Phase_Reports/` | Publication-ready artifacts | HTML + Markdown reports (phase summary, viz). |
-| `docs/` | Experiment + design documentation | `experiment_design.md`, result reports, **this file**. |
-| `scripts/` | Launch scripts + helpers | Split into `snli_*.sh`, `sst2_*`, misc utilities. |
-| `result/` | Run artifacts (metrics, alerts, configs) | One directory per timestamped run. |
-| `fif_simple/` | Legacy prototype | Keep for historical reference only; no code path depends on it. |
+**文档信息**
+- 版本：v1.0.4
+- 最后更新：2024-12-01
+- 状态：Active
+- 相关文档：`PROJECT_TRACKER.md`, `WORK_BOARD.md`
 
 ---
 
-## 2. Refactor Goals (v1.0.4)
+## 概述
 
-1. **Runtime bottlenecks** – eliminate Python hotspots in graph construction &
-   per-step telemetry so Hybrid training is debuggable without profiling every run.
-2. **Code discoverability** – tighten module contracts (e.g., dataloaders vs.
-   trainer vs. models) and remove unused helpers that make energy flows harder to
-   trace.
-3. **Troubleshooting UX** – surface slow-path stats (step time, guard/watch events)
-   in a single place and document how to reproduce any experiment.
-4. **Legacy isolation** – keep `fif_simple` + latex artifacts clearly labelled as
-   non-MVP code to avoid dead-file confusion.
+本文档记录了当前仓库的目录布局、v1.0.4 的代码卫生计划，以及已采取的具体行动，以保持代码对实验、优化和故障排除的实用性。
 
 ---
 
-## 3. Completed Cleanup Actions
+## 1. 目录结构概览
 
-| Area | Change | Impact |
-| --- | --- | --- |
-| Graph building | `build_knn_edges_batched` rewritten with batched matmul + masking | Drops the `B×L` Python loop, removing the largest remaining wall-time hotspot (tracked by T-018/T-019). |
-| Dead code | Removed unused `FrictionLayer._build_edges` helper | Eliminates misleading API surface (no call sites since v1.0.0). |
-| Docs | Added this roadmap to document directory layout + hygiene plan | Provides a canonical reference when onboarding or filing infra issues. |
+| 路径 | 用途 | 说明 |
+|---|---|---|
+| `fif_mvp/` | 主训练栈 | 包含CLI、数据加载器、模型、训练循环、工具函数 |
+| `Project_Phase_Reports/` | 发布就绪的产物 | HTML + Markdown 报告（阶段总结、可视化） |
+| `docs/` | 实验与设计文档 | `experiment_design.md`、结果报告、**本文档** |
+| `scripts/` | 启动脚本与辅助工具 | 分为 `snli_*.sh`、`sst2_*` 及其他工具脚本 |
+| `result/` | 运行产物（指标、告警、配置） | 每次运行一个带时间戳的子目录 |
+| `fif_simple/` | 遗留原型 | 仅作历史参考保留，无代码路径依赖 |
 
 ---
 
-## 4. Pending / Next Steps
+## 2. 重构目标（v1.0.4）
 
-1. **Graph caching**: optional disk-backed cache for window/knn edges to reduce
-   rebuilds when `recompute_mu=True`.
-2. **Energy signal integration**: wire alert stats (std/p90 trends) into tensorboard
-   or CSV to short-circuit failures pre-train.
-3. **Legacy archive**: relocate `fif_simple/` into `docs/archive/` once all references
-   are captured inside documentation.
-4. **Automated hygiene checks**: add `tox` job or CI step that runs `ruff` +
-   selective unit tests to catch unused imports / dead paths before merging.
+1. **运行时瓶颈**
+   - 消除图构建和每步遥测中的 Python 热点
+   - 使 Hybrid 训练无需每次运行都进行性能分析即可调试
 
-Track these items on the `WORK_BOARD` (v1.0.4 section) to preserve alignment with
-version planning.
+2. **代码可发现性**
+   - 加强模块契约（如数据加载器 vs 训练器 vs 模型）
+   - 移除未使用的辅助函数，避免能量流追踪困难
+
+3. **故障排除体验**
+   - 在单一位置展示慢路径统计（步时间、guard/watch 事件）
+   - 记录如何复现任何实验
+
+4. **遗留代码隔离**
+   - 明确标记 `fif_simple` + LaTeX 产物为非 MVP 代码
+   - 避免死文件混淆
+
+---
+
+## 3. 已完成的清理工作
+
+| 领域 | 变更 | 影响 |
+|---|---|---|
+| 图构建 | 使用批量 matmul + masking 重写 `build_knn_edges_batched` | 去除 `B×L` Python 循环，消除最大的墙钟时间热点（T-018/T-019 跟踪） |
+| 死代码 | 移除未使用的单样本处理方法（`_run_single`、`_edge_weights`、`_laplacian`、`_smooth`） | 消除误导性 API 表面（自 v1.0.0 起无调用点） |
+| 死代码 | 移除未使用的 `build_knn_edges()` 函数 | 简化代码库，仅保留批处理优化版本 |
+| 死代码 | 移除未使用的 `per_token_energy()` 函数 | 清理未使用的工具函数 |
+| 文档 | 添加本路线图以记录目录布局和卫生计划 | 为入职或提交基础设施问题提供规范参考 |
+
+---
+
+## 4. 待办事项与后续步骤
+
+1. **图缓存**
+   - 为 window/knn 边提供可选的磁盘缓存
+   - 减少 `recompute_mu=True` 时的重建开销
+
+2. **能量信号集成**
+   - 将告警统计（std/p90 趋势）接入 TensorBoard 或 CSV
+   - 在训练前提前发现失败
+
+3. **遗留代码归档**
+   - 一旦所有引用被文档捕获，将 `fif_simple/` 迁移到 `docs/archive/`
+
+4. **自动化卫生检查**
+   - 添加 `tox` 作业或 CI 步骤运行 `ruff` + 选择性单元测试
+   - 在合并前捕获未使用的导入和死路径
+
+在 `WORK_BOARD.md`（v1.0.4 节）中跟踪这些事项，以保持与版本规划的一致性。

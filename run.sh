@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
+# Run all regular SNLI and SST-2 experiments
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-run_step() {
-  local script_path="$1"
-  echo "[RUN] $script_path"
-  bash "$SCRIPT_DIR/$script_path"
-}
+echo "========================================="
+echo "FIF-A: Running all regular experiments"
+echo "  - SNLI Baseline"
+echo "  - SNLI Hybrid"
+echo "  - SST-2 Baseline"
+echo "  - SST-2 Hybrid"
+echo "========================================="
+echo ""
 
-run_step "scripts/snli_baseline.sh"
-run_step "scripts/snli_hybrid.sh"
-run_step "scripts/sst2_noisy_baseline.sh"
-run_step "scripts/sst2_noisy_hybrid.sh"
-run_step "scripts/sst2_noisy_hybrid_k1_absolute.sh"
-run_step "scripts/snli_hybrid_k1_absolute.sh"
-
+python "$SCRIPT_DIR/scripts/run_experiments.py" --config "$SCRIPT_DIR/scripts/experiments.yaml"
 
 RESULT_DIR="$SCRIPT_DIR/result"
-echo "FIF MVP finished successfully. Results at $RESULT_DIR"
+echo ""
+echo "========================================="
+echo "All experiments finished successfully!"
+echo "Results at: $RESULT_DIR"
+echo "========================================="

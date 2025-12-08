@@ -6,3 +6,4 @@ scikit-learn>=1.5,<1.6
 datasets>=2.20,<2.21
 transformers>=4.44,<4.45
 pytest>=7.4,<8.0
+pyyaml>=6.0,<7.0
