@@ -1,10 +1,10 @@
 # Archive of old experiment configurations (v1.1.0 and noisy variants)
 # These are kept for reference but not used in regular runs
+# Default save_dir points to ./result/1_1_0
 
 experiments:
   # v1.1.0 absolute regularization (failed approach)
   - name: snli_hybrid_k1_absolute
-    ddp: auto
     params:
       task: snli
       model: hybrid
@@ -27,7 +27,6 @@ experiments:
 
   # SST-2 Noisy variants
   - name: sst2_noisy_baseline
-    ddp: auto
     sweep:
       noise_intensity: [low, med, high]
     params:
@@ -38,12 +37,11 @@ experiments:
       lr: 3e-4
       seed: 42
       energy_reg_weight: 1e-4
-      save_dir: ./result
+      save_dir: ./result/1_1_0
       workers: -1
     flags: [sortish_batches, no_deterministic]
 
   - name: sst2_noisy_hybrid_rank
-    ddp: auto
     sweep:
       noise_intensity: [low, med, high]
     params:
@@ -61,12 +59,11 @@ experiments:
       friction.K: 1
       friction.radius: 2
       friction.neighbor: window
-      save_dir: ./result
+      save_dir: ./result/1_1_0
       workers: -1
     flags: [sortish_batches, no_deterministic]
 
   - name: sst2_noisy_hybrid_k1_absolute
-    ddp: auto
     sweep:
       noise_intensity: [low, med, high]
     params:

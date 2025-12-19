@@ -95,6 +95,6 @@ fi
 if [ "$EXTRA_ARGS" != "--dry-run" ]; then
     echo ""
     echo "========================================="
-    echo "Finished! Results in: $SCRIPT_DIR/result"
+    echo "Finished! Results in: $SCRIPT_DIR/result/1_2_0"
     echo "========================================="
 fi

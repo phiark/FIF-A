@@ -2,7 +2,7 @@
 """Unified experiment launcher using a YAML config.
 
 Features:
-- Auto-detects backend (CUDA/NVIDIA or AMD ROCm, Apple MPS, CPU) and only enables DDP on multi-GPU CUDA.
+- Auto-detects backend (CUDA or CPU) and reports the selected device.
 - Supports sweep expansion (e.g., noise_intensity over [low, med, high]).
 - Keeps CLI parity with existing shell scripts while reducing duplication.
 """
@@ -23,14 +23,14 @@ import yaml
 
 @dataclass
 class DeviceInfo:
-    backend: str  # cuda | mps | cpu
+    backend: str  # cuda | cpu
     brand: str
     count: int
     description: str
 
 
 def detect_device() -> DeviceInfo:
-    """Return best-available device info with MPS/AMD awareness."""
+    """Return best-available device info (CUDA preferred)."""
 
     if torch.cuda.is_available():
         try:
@@ -44,12 +44,6 @@ def detect_device() -> DeviceInfo:
             brand=brand,
             count=count,
             description=f"{brand} GPU ({name}) x{count}",
-        )
-
-    mps_backend = getattr(torch.backends, "mps", None)
-    if mps_backend is not None and torch.backends.mps.is_available():
-        return DeviceInfo(
-            backend="mps", brand="Apple", count=1, description="Apple GPU via MPS"
         )
 
     return DeviceInfo(backend="cpu", brand="CPU", count=1, description="CPU")
@@ -75,10 +69,8 @@ def build_command(
     params: Dict[str, str | int | float],
     flags: Sequence[str],
     negative_flags: Sequence[str],
-    ddp_args: Sequence[str],
 ) -> List[str]:
     cmd: List[str] = ["python", "-m", "fif_mvp.cli.run_experiment"]
-    cmd.extend(ddp_args)
     for flag in flags:
         cmd.append(f"--{flag}")
     for nflag in negative_flags:
@@ -108,19 +100,8 @@ def run_experiments(config_path: Path, select: Sequence[str], dry_run: bool) -> 
         sweep = exp.get("sweep", {}) or {}
         flags = exp.get("flags", []) or []
         negative_flags = exp.get("negative_flags", []) or []
-        ddp_pref = exp.get("ddp", "auto")
-        enable_ddp = (
-            ddp_pref not in {"off", False}
-            and device.backend == "cuda"
-            and device.count > 1
-        )
-        ddp_args: List[str] = []
-        if enable_ddp:
-            ddp_args = ["--ddp", "--nproc_per_node", str(device.count)]
-        elif ddp_pref not in {"auto", "off", False} and device.backend != "cuda":
-            print(
-                f"[warn] DDP requested for {name} but backend={device.backend}; skipping DDP."
-            )
+        if "ddp" in exp:
+            print(f"[warn] DDP config ignored for {name}; single-GPU runner only.")
 
         param_sets = expand_params(params, sweep)
         for param_set in param_sets:
@@ -131,7 +112,7 @@ def run_experiments(config_path: Path, select: Sequence[str], dry_run: bool) -> 
             tagged_name = (
                 name if not suffix_parts else f"{name}__{'__'.join(suffix_parts)}"
             )
-            cmd = build_command(param_set, flags, negative_flags, ddp_args)
+            cmd = build_command(param_set, flags, negative_flags)
             print(f"\n[RUN] {tagged_name}")
             print("      ", " ".join(cmd))
             if dry_run:

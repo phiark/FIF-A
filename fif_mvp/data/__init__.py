@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence
-import os
+
 import torch
 from torch.utils.data import DataLoader, Sampler
 
@@ -69,7 +70,9 @@ class SortishSampler(Sampler[int]):
     This reduces padding while preserving randomness. Non-distributed only.
     """
 
-    def __init__(self, lengths: List[int], batch_size: int, chunk_mult: int = 50) -> None:
+    def __init__(
+        self, lengths: List[int], batch_size: int, chunk_mult: int = 50
+    ) -> None:
         self.lengths = lengths
         self.batch_size = max(1, batch_size)
         self.chunk_size = max(self.batch_size * max(1, chunk_mult), self.batch_size)
@@ -112,10 +115,9 @@ def build_dataloaders(
     """Return dataloaders and metadata for the requested task."""
 
     noise_vocab = train_noise_levels or DEFAULT_NOISE_LEVELS
-    # Loader performance knobs (auto-tuned for GPU backends)
+    # Loader performance knobs (auto-tuned for CUDA)
     has_cuda = torch.cuda.is_available()
-    has_mps = getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available()
-    prefer_accel = has_cuda or has_mps
+    prefer_accel = has_cuda
     auto_workers = min(8, max(0, (os.cpu_count() or 1) - 1))
     if workers is not None and workers >= 0:
         num_workers = workers

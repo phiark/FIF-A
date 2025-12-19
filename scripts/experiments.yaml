@@ -1,8 +1,7 @@
-# Regular SNLI and SST-2 experiments
+# Regular SNLI and SST-2 experiments (single-GPU V100 baseline)
 experiments:
   # SNLI Baseline
   - name: snli_baseline
-    ddp: auto
     params:
       task: snli
       model: baseline
@@ -10,13 +9,12 @@ experiments:
       batch_size: 256
       lr: 3e-4
       seed: 42
-      save_dir: ./result
+      save_dir: ./result/1_2_0
       workers: -1
     flags: [sortish_batches]
 
   # SNLI Hybrid with FIF
   - name: snli_hybrid
-    ddp: auto
     params:
       task: snli
       model: hybrid
@@ -32,13 +30,12 @@ experiments:
       energy_reg_target: rank
       energy_rank_margin: 0.5
       energy_rank_topk: 1
-      save_dir: ./result
+      save_dir: ./result/1_2_0
       workers: -1
     flags: [sortish_batches]
 
   # SST-2 Baseline
   - name: sst2_baseline
-    ddp: auto
     params:
       task: sst2
       model: baseline
@@ -46,13 +43,12 @@ experiments:
       batch_size: 512
       lr: 3e-4
       seed: 42
-      save_dir: ./result
+      save_dir: ./result/1_2_0
       workers: -1
     flags: [sortish_batches]
 
   # SST-2 Hybrid with FIF
   - name: sst2_hybrid
-    ddp: auto
     params:
       task: sst2
       model: hybrid
@@ -68,6 +64,6 @@ experiments:
       energy_reg_target: rank
       energy_rank_margin: 0.5
       energy_rank_topk: 1
-      save_dir: ./result
+      save_dir: ./result/1_2_0
       workers: -1
     flags: [sortish_batches]

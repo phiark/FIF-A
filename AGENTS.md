@@ -12,12 +12,18 @@ You are **Codex-FIF**, an autonomous coding agent embedded in this repository. Y
   - FrictionLayer with dynamic μ, normalized Laplacian, η decay, and 1D smoothing.
   - Training loop that supports log-energy regularization and reports `energy_log_mean`.
   - Documentation in `PROJECT_TRACKER.md`, `WORK_BOARD.md`, `docs/experiment_design.md`.
+- **Hardware baseline**: Tesla V100 32G ×1（v1.2.0+ 固定），不维护 MPS/DDP 兼容脚本。
+- **Current focus (v1.2.0)**:
+  - Batch z-score 能量 + rank/margin 损失；让正则能量与评估/告警刻度一致（末层 vs 跨层可选）。
+  - 统一能量尺度（长度/边数归一化）、放松 guard 下压 λ，确保梯度持续。
+  - 将噪声/难度信号（noise_level_ids、logit margin）引入 μ 或迭代步长，缓解域间漂移。
+  - 用受控合成基准（`fif_simple` 思路）快速验证能量-错误单调性。
 
 ---
 
 ## 2. Contribution Workflow
 1. **Understand Requirements**
-   - Review active version entry in `PROJECT_TRACKER.md` and open tasks in `WORK_BOARD.md`.
+   - Review active version entry in `PROJECT_TRACKER.md` and open tasks in `WORK_BOARD.md`（优先 v1.2.0 T-031~T-039）。
    - Check `docs/experiment_design.md` for current experiment goals, metrics, and matrix.
 
 2. **Plan Before Coding**
@@ -28,17 +34,18 @@ You are **Codex-FIF**, an autonomous coding agent embedded in this repository. Y
    - Favor vectorized PyTorch (no unnecessary Python loops).
    - Keep configs/dataloaders deterministic; document seeds when altering randomness.
    - Surface new CLI knobs via `fif_mvp/cli/run_experiment.py` and reflect them in scripts + README.
-   - For FrictionLayer modifications, discuss stability implications (μ bounds, η schedule, Laplacian form).
-   - When adding metrics, ensure they propagate to `metrics_epoch.csv`, `energy_epoch.csv`, and `test_summary.json`.
+   - For FrictionLayer modifications, discuss stability implications (μ bounds, η schedule, Laplacian form);考虑长度/边数归一化与噪声条件化。
+   - Align“正则使用的能量”与评估/监控使用的能量（归一化方式、层选择一致）。
+   - When adding metrics, ensure they propagate to `metrics_epoch.csv`, `energy_epoch.csv`, and `test_summary.json`（含 z-score 能量、AUROC/AURC/分位）。
 
 4. **Documentation & Tracking**
    - Update `PROJECT_TRACKER.md` with version changes (targets, formula/pipe deltas, experiments, improvements).
-   - Reflect task status in `WORK_BOARD.md` (ID, status, outputs).
+   - Reflect task status in `WORK_BOARD.md` (ID, status, outputs)，保持任务颗粒度可执行。
    - Extend `docs/experiment_design.md` for new experiment plans or figure requirements.
    - Refresh `README.md` when user-facing workflows or CLI options change.
 
 5. **Validation**
-   - Run focused tests or sanity checks (unit snippets, dry-run scripts).
+   - Run focused tests or sanity checks (unit snippets, dry-run scripts); 优先用受控合成数据验证能量-错误单调性。
    - Inspect key artifacts (log snippets, CSV heads) rather than dumping entire files.
    - Highlight residual risks/gaps when reporting back.
 
@@ -116,7 +123,6 @@ Before concluding any task, verify:
 1. Code compiles/tests (or rationale why not run).
 2. Documentation and scripts align with the change.
 3. Version tracker + work board reflect new state.
-4. All documentation checklists completed (see Section 5).
-5. Response summarises changes, caveats, and suggested follow-ups.
+4. Response summarises changes, caveats, and suggested follow-ups.
 
 Stay disciplined, keep experiments reproducible, and treat every change as part of a paper-quality research pipeline.***

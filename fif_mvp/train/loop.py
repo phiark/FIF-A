@@ -242,8 +242,6 @@ class Trainer:
             step_start = time.perf_counter()
             if self.device.type == "cuda":
                 amp_cm = torch.amp.autocast("cuda", enabled=bool(self.scaler))
-            elif self.device.type == "mps" and hasattr(torch, "autocast"):
-                amp_cm = torch.autocast(device_type="mps", enabled=self.config.use_amp)
             else:
                 amp_cm = nullcontext()
             with amp_cm:
@@ -708,10 +706,6 @@ class Trainer:
                 batch = self._to_device(batch)
                 if self.device.type == "cuda":
                     amp_cm = torch.amp.autocast("cuda", enabled=bool(self.scaler))
-                elif self.device.type == "mps" and hasattr(torch, "autocast"):
-                    amp_cm = torch.autocast(
-                        device_type="mps", enabled=self.config.use_amp
-                    )
                 else:
                     amp_cm = nullcontext()
                 with amp_cm:

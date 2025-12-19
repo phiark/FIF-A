@@ -1,7 +1,7 @@
 """Minimal sparse adjacency helpers.
 
 Includes a small LRU-like cache for window edges to avoid rebuilding the
-same index tensors on every forward pass. This especially helps GPU/MPS
+same index tensors on every forward pass. This especially helps GPUs
 where Python-side list building dominates time.
 """
 
