@@ -8,6 +8,7 @@ import os as _os
 import warnings
 
 _os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+_os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 import json
 import sys
 from dataclasses import dataclass

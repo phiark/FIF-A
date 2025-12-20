@@ -115,6 +115,7 @@
 
 - 默认开启确定性；可用 `--no_deterministic` 提升吞吐。
 - 仅支持单卡 CUDA（Tesla V100 16G ×1）基线复现，不再维护 MPS/DDP 兼容路径。
+- 启动脚本默认设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8` 以减少 CUDA 确定性告警。
 - 所有实验结果需写入 `result/<version>/` 并在 `PROJECT_TRACKER.md`/`PHASE_RESULTS.md` 中登记。
 
 ---

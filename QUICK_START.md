@@ -22,6 +22,7 @@
 ```
 
 运行 v1.2.0 标准实验（SNLI + SST-2，baseline + hybrid）。
+脚本已默认设置 `CUBLAS_WORKSPACE_CONFIG=:4096:8` 以保证 CUDA 确定性。
 
 ---
 

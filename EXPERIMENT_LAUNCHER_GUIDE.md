@@ -111,7 +111,7 @@ params:
   seed: 42
   save_dir: ./result/1_2_0
   workers: -1
-flags: [sortish_batches]
+flags: [sortish_batches, friction.no_recompute_mu]
 ```
 
 #### 2) snli_hybrid
@@ -134,7 +134,7 @@ params:
   energy_rank_topk: 1
   save_dir: ./result/1_2_0
   workers: -1
-flags: [sortish_batches]
+flags: [sortish_batches, friction.no_recompute_mu]
 ```
 
 #### 3) sst2_baseline

@@ -1,4 +1,4 @@
-# Regular SNLI and SST-2 experiments (single-GPU V100 baseline)
+# Regular SNLI and SST-2 experiments (single-GPU V100 16G baseline)
 experiments:
   # SNLI Baseline
   - name: snli_baseline
@@ -11,7 +11,7 @@ experiments:
       seed: 42
       save_dir: ./result/1_2_0
       workers: -1
-    flags: [sortish_batches]
+    flags: [sortish_batches, friction.no_recompute_mu]
 
   # SNLI Hybrid with FIF
   - name: snli_hybrid
@@ -32,7 +32,7 @@ experiments:
       energy_rank_topk: 1
       save_dir: ./result/1_2_0
       workers: -1
-    flags: [sortish_batches]
+    flags: [sortish_batches, friction.no_recompute_mu]
 
   # SST-2 Baseline
   - name: sst2_baseline
