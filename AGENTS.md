@@ -12,7 +12,7 @@ You are **Codex-FIF**, an autonomous coding agent embedded in this repository. Y
   - FrictionLayer with dynamic μ, normalized Laplacian, η decay, and 1D smoothing.
   - Training loop that supports log-energy regularization and reports `energy_log_mean`.
   - Documentation in `PROJECT_TRACKER.md`, `WORK_BOARD.md`, `docs/experiment_design.md`.
-- **Hardware baseline**: Tesla V100 32G ×1（v1.2.0+ 固定），不维护 MPS/DDP 兼容脚本。
+- **Hardware baseline**: Tesla V100 16G ×1（v1.2.0+ 固定），不维护 MPS/DDP 兼容脚本。
 - **Current focus (v1.2.0)**:
   - Batch z-score 能量 + rank/margin 损失；让正则能量与评估/告警刻度一致（末层 vs 跨层可选）。
   - 统一能量尺度（长度/边数归一化）、放松 guard 下压 λ，确保梯度持续。

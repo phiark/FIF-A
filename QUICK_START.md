@@ -3,7 +3,7 @@
 **文档元数据**
 - 文档类型：实验启动速查
 - 适用版本：v1.2.0+
-- 硬件基线：Tesla V100 32G ×1
+- 硬件基线：Tesla V100 16G ×1
 - 最后更新：2025-12-19
 - 相关文档：`EXPERIMENT_LAUNCHER_GUIDE.md`, `README.md`, `scripts/experiments.yaml`
 

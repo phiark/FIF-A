@@ -4,7 +4,7 @@
 - 文档类型：项目总览与论文/实验入口
 - 当前版本：v1.2.0 (🔄 进行中)
 - 论文状态：实验阶段
-- 硬件基线：Tesla V100 32G ×1（v1.2.0+ 固定）
+- 硬件基线：Tesla V100 16G ×1（v1.2.0+ 固定）
 - 最后更新：2025-12-19
 - 相关文档：`PROJECT_TRACKER.md`, `WORK_BOARD.md`, `PHASE_RESULTS.md`, `docs/`
 
@@ -114,7 +114,7 @@
 ## 复现与约束
 
 - 默认开启确定性；可用 `--no_deterministic` 提升吞吐。
-- 仅支持单卡 CUDA（Tesla V100 32G ×1）基线复现，不再维护 MPS/DDP 兼容路径。
+- 仅支持单卡 CUDA（Tesla V100 16G ×1）基线复现，不再维护 MPS/DDP 兼容路径。
 - 所有实验结果需写入 `result/<version>/` 并在 `PROJECT_TRACKER.md`/`PHASE_RESULTS.md` 中登记。
 
 ---

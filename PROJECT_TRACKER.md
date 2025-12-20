@@ -5,7 +5,7 @@
 - 当前活跃版本：v1.2.0 (🔄 进行中)
 - 最后更新：2025-12-19
 - 维护者：Research Team
-- 硬件基线：Tesla V100 32G ×1（v1.2.0+ 固定）
+- 硬件基线：Tesla V100 16G ×1（v1.2.0+ 固定）
 - 相关文档：`WORK_BOARD.md`, `PHASE_RESULTS.md`, `docs/experiment_design.md`
 
 **快速导航**

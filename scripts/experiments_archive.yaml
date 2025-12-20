@@ -9,7 +9,7 @@ experiments:
       task: snli
       model: hybrid
       epochs: 1
-      batch_size: 1024
+      batch_size: 512
       lr: 3e-4
       seed: 42
       friction.K: 1
@@ -33,7 +33,7 @@ experiments:
       task: sst2_noisy
       model: baseline
       epochs: 3
-      batch_size: 1024
+      batch_size: 512
       lr: 3e-4
       seed: 42
       energy_reg_weight: 1e-4
@@ -48,7 +48,7 @@ experiments:
       task: sst2_noisy
       model: hybrid
       epochs: 3
-      batch_size: 1024
+      batch_size: 512
       lr: 3e-4
       seed: 42
       energy_reg_weight: 1e-4
@@ -70,7 +70,7 @@ experiments:
       task: sst2_noisy
       model: hybrid
       epochs: 3
-      batch_size: 1024
+      batch_size: 512
       lr: 3e-4
       seed: 42
       energy_reg_weight: 1e-4
