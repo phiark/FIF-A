@@ -46,12 +46,14 @@ class Trainer:
         )
         self.scheduler: Optional[torch.optim.lr_scheduler.LambdaLR] = None
         self.step_times: List[float] = []
-        # New torch.amp API (only for CUDA)
-        self.scaler = (
-            torch.amp.GradScaler("cuda")
-            if (self.config.use_amp and device.type == "cuda")
-            else None
-        )
+        # AMP scaler for CUDA (support both torch.amp and torch.cuda.amp)
+        if self.config.use_amp and device.type == "cuda":
+            if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
+                self.scaler = torch.amp.GradScaler("cuda")
+            else:
+                self.scaler = torch.cuda.amp.GradScaler()
+        else:
+            self.scaler = None
         self.rank = getattr(config, "rank", 0)
         self.world_size = getattr(config, "world_size", 1)
         self.energy_reg_weight = self.config.energy_reg_weight
@@ -241,7 +243,10 @@ class Trainer:
             batch = self._to_device(batch)
             step_start = time.perf_counter()
             if self.device.type == "cuda":
-                amp_cm = torch.amp.autocast("cuda", enabled=bool(self.scaler))
+                if hasattr(torch, "amp") and hasattr(torch.amp, "autocast"):
+                    amp_cm = torch.amp.autocast("cuda", enabled=bool(self.scaler))
+                else:
+                    amp_cm = torch.cuda.amp.autocast(enabled=bool(self.scaler))
             else:
                 amp_cm = nullcontext()
             with amp_cm:
@@ -705,7 +710,10 @@ class Trainer:
             for batch in loader:
                 batch = self._to_device(batch)
                 if self.device.type == "cuda":
-                    amp_cm = torch.amp.autocast("cuda", enabled=bool(self.scaler))
+                    if hasattr(torch, "amp") and hasattr(torch.amp, "autocast"):
+                        amp_cm = torch.amp.autocast("cuda", enabled=bool(self.scaler))
+                    else:
+                        amp_cm = torch.cuda.amp.autocast(enabled=bool(self.scaler))
                 else:
                     amp_cm = nullcontext()
                 with amp_cm:
