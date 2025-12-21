@@ -1013,6 +1013,27 @@ class Trainer:
             for k, v in batch.items()
         }
 
+    def _save_checkpoint(self) -> None:
+        """Save model checkpoint to save_dir/model.pt"""
+        checkpoint_path = self.save_dir / "model.pt"
+        try:
+            # Get underlying model (unwrap if using DataParallel/DistributedDataParallel)
+            model_to_save = self.model
+            if hasattr(model_to_save, "module"):
+                model_to_save = model_to_save.module
+
+            torch.save({
+                'model_state_dict': model_to_save.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'config': self.config.to_dict() if hasattr(self.config, 'to_dict') else None,
+            }, checkpoint_path)
+
+            if self.rank == 0:
+                self.logger.info(f"Saved checkpoint to {checkpoint_path}")
+        except Exception as exc:
+            if self.rank == 0:
+                self.logger.error(f"Failed to save checkpoint: {exc}")
+
 
 def run_training(
     config: ExperimentConfig,
