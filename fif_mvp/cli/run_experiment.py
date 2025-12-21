@@ -244,6 +244,11 @@ def parse_args() -> argparse.Namespace:
         default=50,
         help="Chunk multiple for sortish batching (chunk_size = batch_size * mult).",
     )
+    parser.add_argument(
+        "--save_model",
+        action="store_true",
+        help="Save model checkpoint after training (saved to save_dir/model.pt).",
+    )
     return parser.parse_args()
 
 
