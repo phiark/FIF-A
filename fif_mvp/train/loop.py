@@ -46,6 +46,10 @@ class Trainer:
         )
         self.scheduler: Optional[torch.optim.lr_scheduler.LambdaLR] = None
         self.step_times: List[float] = []
+        self.timing_steps = max(0, int(getattr(config, "timing_steps", 0) or 0))
+        self.timing_warmup = max(0, int(getattr(config, "timing_warmup", 0) or 0))
+        self.timing_records: List[Dict[str, float]] = []
+        self._timing_seen = 0
         # AMP scaler for CUDA (support both torch.amp and torch.cuda.amp)
         if self.config.use_amp and device.type == "cuda":
             if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
@@ -210,6 +214,7 @@ class Trainer:
             )
             self._write_test_summary(test_metrics)
             self._write_timing(timer.elapsed)
+            self._write_timing_breakdown()
             self._write_alerts_file()
         return test_metrics
 
@@ -237,10 +242,17 @@ class Trainer:
         progress = tqdm(
             loader, desc=f"epoch {epoch}", leave=False, disable=(self.rank != 0)
         )
+        data_start = time.perf_counter()
         for batch in progress:
             if global_step >= total_steps:
                 break
+            record_timing = self._timing_should_record()
             batch = self._to_device(batch)
+            if record_timing:
+                self._maybe_sync()
+                data_sec = time.perf_counter() - data_start
+            else:
+                data_sec = 0.0
             step_start = time.perf_counter()
             if self.device.type == "cuda":
                 if hasattr(torch, "amp") and hasattr(torch.amp, "autocast"):
@@ -249,6 +261,9 @@ class Trainer:
                     amp_cm = torch.cuda.amp.autocast(enabled=bool(self.scaler))
             else:
                 amp_cm = nullcontext()
+            if record_timing:
+                self._maybe_sync()
+                fwd_start = time.perf_counter()
             with amp_cm:
                 outputs = self.model(
                     batch["input_ids"],
@@ -272,6 +287,9 @@ class Trainer:
                         energy_components=energy_components,
                     )
                 ce_loss = self.criterion(outputs.logits, batch["labels"])
+            if record_timing:
+                self._maybe_sync()
+                fwd_sec = time.perf_counter() - fwd_start
             loss = ce_loss
             if self.energy_reg_weight > 0.0:
                 energy_tensor = self._select_energy_for_regularization(outputs)
@@ -282,25 +300,39 @@ class Trainer:
                     loss = loss + self.energy_reg_weight * reg
             if not torch.isfinite(loss):
                 raise RuntimeError("Loss became non-finite.")
+            if record_timing:
+                self._maybe_sync()
+                bwd_start = time.perf_counter()
             if self.scaler is not None:
                 self.scaler.scale(loss).backward()
                 self.scaler.unscale_(self.optimizer)
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(), self.config.optimization.grad_clip
                 )
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
             else:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(), self.config.optimization.grad_clip
                 )
+            if record_timing:
+                self._maybe_sync()
+                bwd_sec = time.perf_counter() - bwd_start
+                self._maybe_sync()
+                opt_start = time.perf_counter()
+            if self.scaler is not None:
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
                 self.optimizer.step()
             if self.scheduler:
                 self.scheduler.step()
             self.optimizer.zero_grad(set_to_none=True)
+            if record_timing:
+                self._maybe_sync()
+                opt_sec = time.perf_counter() - opt_start
             global_step += 1
-            self.step_times.append(time.perf_counter() - step_start)
+            step_sec = time.perf_counter() - step_start
+            self.step_times.append(step_sec)
             losses.append(loss.item())
 
             batch_preds = outputs.logits.argmax(dim=-1)
@@ -310,6 +342,19 @@ class Trainer:
             energy_terms.append(energy_eval.detach().cpu())
 
             progress.set_postfix({"loss": loss.item()})
+            if record_timing:
+                other_sec = step_sec - (fwd_sec + bwd_sec + opt_sec)
+                self.timing_records.append(
+                    {
+                        "data_sec": float(data_sec),
+                        "fwd_sec": float(fwd_sec),
+                        "bwd_sec": float(bwd_sec),
+                        "opt_sec": float(opt_sec),
+                        "step_sec": float(step_sec),
+                        "other_sec": float(max(other_sec, 0.0)),
+                    }
+                )
+            data_start = time.perf_counter()
 
         preds_tensor = torch.cat(preds) if preds else torch.empty(0, dtype=torch.long)
         labels_tensor = (
@@ -913,6 +958,50 @@ class Trainer:
         }
         with open(self.save_dir / "timing.json", "w", encoding="utf-8") as f:
             json.dump(timing, f, indent=2)
+
+    def _write_timing_breakdown(self) -> None:
+        if not self.timing_records:
+            return
+        segments = {
+            "data_sec",
+            "fwd_sec",
+            "bwd_sec",
+            "opt_sec",
+            "other_sec",
+            "step_sec",
+        }
+        stats = {}
+        for key in segments:
+            values = [row[key] for row in self.timing_records]
+            stats[key] = {
+                "mean": float(np.mean(values)),
+                "std": float(np.std(values)),
+                "p90": float(np.percentile(values, 90)),
+            }
+        payload = {
+            "timing_steps": int(self.timing_steps),
+            "timing_warmup": int(self.timing_warmup),
+            "samples": len(self.timing_records),
+            "stats": stats,
+            "steps": self.timing_records,
+            "note": "segment timings use torch.cuda.synchronize when enabled",
+        }
+        with open(self.save_dir / "timing_breakdown.json", "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+
+    def _maybe_sync(self) -> None:
+        if self.device.type == "cuda":
+            torch.cuda.synchronize()
+
+    def _timing_should_record(self) -> bool:
+        if self.timing_steps <= 0:
+            return False
+        should_record = (
+            self._timing_seen >= self.timing_warmup
+            and len(self.timing_records) < self.timing_steps
+        )
+        self._timing_seen += 1
+        return should_record
 
     def _to_device(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         non_blocking = self.device.type == "cuda"

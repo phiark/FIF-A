@@ -202,6 +202,7 @@ result/
 | `energy_error_correlation.json` | 能量-错误相关性、AUROC、Coverage | 论文图表 |
 | `confusion_matrix.csv` | 混淆矩阵 | 错误分析 |
 | `timing.json` | 训练时间统计 | 性能分析 |
+| `timing_breakdown.json` | 前 N 步耗时拆分（需 `--timing_steps`） | 吞吐诊断 |
 | `alerts.json` | 能量告警记录（如有） | 调试 |
 
 ---
@@ -310,7 +311,8 @@ python scripts/run_experiments.py --select my_exp
 1. 使用版本化 `save_dir`（例如 `./result/1_2_0`）
 2. 大规模扫描先 `--dry-run` 校验
 3. 为论文指标保留 `test_summary.json` 与 `energy_error_correlation.json`
-4. 重要实验完成后同步 `PROJECT_TRACKER.md` 与 `PHASE_RESULTS.md`
+4. 吞吐诊断可先跑 `--timing_steps 100 --timing_warmup 10`
+5. 重要实验完成后同步 `PROJECT_TRACKER.md` 与 `PHASE_RESULTS.md`
 
 ---
 

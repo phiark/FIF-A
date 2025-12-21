@@ -96,6 +96,7 @@
 - `--energy_eval_scope {auto,per_sample}` / `--energy_metrics_source {normalized,raw}`
 - `--friction.K` / `--friction.radius` / `--friction.neighbor`
 - `--train_noise_levels clean,low,med,high`
+- `--timing_steps` / `--timing_warmup`（训练前 N 步耗时拆分）
 
 ---
 
@@ -104,6 +105,7 @@
 每次运行目录包含：
 
 - `config.json`, `env.txt`, `timing.json`
+- `timing_breakdown.json`（启用 `--timing_steps` 时生成）
 - `metrics_epoch.csv`, `energy_epoch.csv`
 - `test_summary.json`（acc/F1/ECE/能量指标/AUROC/AURC）
 - `energy_error_correlation.json`（能量-错误相关性与 coverage-risk 曲线）

@@ -202,6 +202,18 @@ def parse_args() -> argparse.Namespace:
         help="Use torch.compile to optimize the model (PyTorch 2.x).",
     )
     parser.add_argument(
+        "--timing_steps",
+        type=int,
+        default=0,
+        help="Record per-step timing breakdown for the first N steps (0 = disable).",
+    )
+    parser.add_argument(
+        "--timing_warmup",
+        type=int,
+        default=10,
+        help="Warmup steps to skip before timing breakdown.",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=-1,
@@ -480,6 +492,8 @@ def _build_experiment_config(
         energy_watch=watch_config,
         use_amp=not args.no_amp,
         compile_model=args.compile,
+        timing_steps=args.timing_steps,
+        timing_warmup=args.timing_warmup,
     )
 
 

@@ -101,6 +101,9 @@ class ExperimentConfig:
     # Acceleration options
     use_amp: bool = True
     compile_model: bool = False
+    # Timing diagnostics (0 = disabled)
+    timing_steps: int = 0
+    timing_warmup: int = 10
     # Distributed options
     distributed: bool = False
     rank: int = 0
