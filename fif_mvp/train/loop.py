@@ -216,6 +216,9 @@ class Trainer:
             self._write_timing(timer.elapsed)
             self._write_timing_breakdown()
             self._write_alerts_file()
+            # Save model checkpoint
+            if getattr(self.config, "save_model", False):
+                self._save_checkpoint()
         return test_metrics
 
     def _run_epoch(
