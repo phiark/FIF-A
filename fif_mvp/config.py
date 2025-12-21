@@ -80,6 +80,7 @@ class ExperimentConfig:
     friction: FrictionConfig = field(default_factory=FrictionConfig)
     optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
     dump_energy_per_sample: bool = False
+    save_model: bool = False
     noise_intensity: str | None = None
     noise_vocab: List[str] = field(default_factory=lambda: ["clean"])
     train_noise_levels: List[str] = field(default_factory=list)

@@ -499,6 +499,7 @@ def _build_experiment_config(
         compile_model=args.compile,
         timing_steps=args.timing_steps,
         timing_warmup=args.timing_warmup,
+        save_model=args.save_model,
     )
 
 
